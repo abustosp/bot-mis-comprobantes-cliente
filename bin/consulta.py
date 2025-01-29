@@ -44,6 +44,13 @@ def consulta_mc(desde,
     
     return response.json()
 
+def save_to_csv(data, filename):
+    with open(filename, 'w', newline='') as csvfile:
+        if data:
+            fieldnames = data[0].keys()
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=';')
+            writer.writeheader()
+            writer.writerows(data)
 
 def consulta_mc_csv():
     
@@ -70,28 +77,22 @@ def consulta_mc_csv():
                                 contrasena, 
                                 descarga_emitidos, 
                                 descarga_recibidos)
-        
 
         if descarga_emitidos:
             ruta_emitidos = dato['Ubicación Emitidos']
             if not os.path.exists(ruta_emitidos):
                 os.makedirs(ruta_emitidos)
             filename = dato['Nombre Emitidos'] 
-            json.dump(response['mis_comprobantes_emitidos'], open(f'{ruta_emitidos}/{filename}', 'w'))
+            json.dump(response['mis_comprobantes_emitidos'], open(f'{ruta_emitidos}/{filename}.json', 'w'))
+            save_to_csv(response['mis_comprobantes_emitidos'], f'{ruta_emitidos}/{filename}.csv')
 
         if descarga_recibidos:
             ruta_recibidos = dato['Ubicación Recibidos']
             if not os.path.exists(ruta_recibidos):
                 os.makedirs(ruta_recibidos)
             filename = dato['Nombre Recibidos']
-            json.dump(response['mis_comprobantes_recibidos'], open(f'{ruta_recibidos}/{filename}', 'w'))
-            
-        
-
-        
-        
-        print("Consulta realizada con éxito")
-        
+            json.dump(response['mis_comprobantes_recibidos'], open(f'{ruta_recibidos}/{filename}.json', 'w'))
+            save_to_csv(response['mis_comprobantes_recibidos'], f'{ruta_recibidos}/{filename}.csv')
 
         
 if __name__ == '__main__':
