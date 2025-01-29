@@ -58,23 +58,37 @@ def consulta_mc_csv():
         representado_nombre = dato['Representado']
         representado_cuit = dato['CUIT Representado']
         contrasena = dato['Clave']
-        if dato['Descarga Emitidos'].lower() == 'si':
-            descarga_emitidos = True
-        else:
-            descarga_emitidos = False
-        if dato['Descarga Recibidos'].lower() == 'si':
-            descarga_recibidos = True
-        else:
-            descarga_recibidos = False
         
-        print(consulta_mc(desde, 
-                          hasta, 
-                          cuit_inicio_sesion, 
-                          representado_nombre, 
-                          representado_cuit, 
-                          contrasena, 
-                          descarga_emitidos, 
-                          descarga_recibidos))
+        descarga_emitidos = dato['Descarga Emitidos'].lower() == 'si'
+        descarga_recibidos = dato['Descarga Recibidos'].lower() == 'si'
+        
+        response = consulta_mc(desde, 
+                                hasta, 
+                                cuit_inicio_sesion, 
+                                representado_nombre, 
+                                representado_cuit, 
+                                contrasena, 
+                                descarga_emitidos, 
+                                descarga_recibidos)
+        
+
+        if descarga_emitidos:
+            ruta_emitidos = dato['Ubicación Emitidos']
+            if not os.path.exists(ruta_emitidos):
+                os.makedirs(ruta_emitidos)
+            filename = dato['Nombre Emitidos'] 
+            json.dump(response['mis_comprobantes_emitidos'], open(f'{ruta_emitidos}/{filename}', 'w'))
+
+        if descarga_recibidos:
+            ruta_recibidos = dato['Ubicación Recibidos']
+            if not os.path.exists(ruta_recibidos):
+                os.makedirs(ruta_recibidos)
+            filename = dato['Nombre Recibidos']
+            json.dump(response['mis_comprobantes_recibidos'], open(f'{ruta_recibidos}/{filename}', 'w'))
+            
+        
+
+        
         
         print("Consulta realizada con éxito")
         
