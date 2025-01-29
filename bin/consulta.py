@@ -71,6 +71,7 @@ def consulta_mc_csv():
         descarga_recibidos = dato['Descarga Recibidos'].lower() == 'si'
         
         errores = []
+        errores2 = []
         
         try:
             response = consulta_mc(desde, 
@@ -81,6 +82,22 @@ def consulta_mc_csv():
                                     contrasena, 
                                     descarga_emitidos, 
                                     descarga_recibidos)
+            
+            if 'detail' in response:
+                errores2.append({
+                    'request': {
+                        'desde': desde,
+                        'hasta': hasta,
+                        'cuit_inicio_sesion': cuit_inicio_sesion,
+                        'representado_nombre': representado_nombre,
+                        'representado_cuit': representado_cuit,
+                        'contrasena': contrasena,
+                        'descarga_emitidos': descarga_emitidos,
+                        'descarga_recibidos': descarga_recibidos
+                    },
+                    'message': response['detail']['message'],
+                    'error_code': response['detail']['error_code']
+                })
             
             def guardar_data(ubicacion, nombre, seccion_response):
                 if not os.path.exists(ubicacion):
@@ -104,6 +121,9 @@ def consulta_mc_csv():
             
     if errores:
         open('errores.txt', 'w').write('\n'.join(errores))
+        
+    if errores2:
+        json.dump(errores2, open('errores.json', 'w'))
         
 if __name__ == '__main__':
     consulta_mc_csv()
