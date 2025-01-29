@@ -52,6 +52,7 @@ def save_to_csv(data, filename):
             writer.writeheader()
             writer.writerows(data)
 
+
 def consulta_mc_csv():
     
     datos = csv.DictReader(open('Descarga-Mis-Comprobantes.csv'), delimiter='|', quotechar="'")
@@ -69,31 +70,40 @@ def consulta_mc_csv():
         descarga_emitidos = dato['Descarga Emitidos'].lower() == 'si'
         descarga_recibidos = dato['Descarga Recibidos'].lower() == 'si'
         
-        response = consulta_mc(desde, 
-                                hasta, 
-                                cuit_inicio_sesion, 
-                                representado_nombre, 
-                                representado_cuit, 
-                                contrasena, 
-                                descarga_emitidos, 
-                                descarga_recibidos)
+        errores = []
+        
+        try:
+            response = consulta_mc(desde, 
+                                    hasta, 
+                                    cuit_inicio_sesion, 
+                                    representado_nombre, 
+                                    representado_cuit, 
+                                    contrasena, 
+                                    descarga_emitidos, 
+                                    descarga_recibidos)
+            
+            def guardar_data(ubicacion, nombre, seccion_response):
+                if not os.path.exists(ubicacion):
+                    os.makedirs(ubicacion)
+                filename = nombre
+                json.dump(response[seccion_response], open(f'{ubicacion}/{filename}.json', 'w'))
+                save_to_csv(response[seccion_response], f'{ubicacion}/{filename}.csv')
 
-        if descarga_emitidos:
-            ruta_emitidos = dato['Ubicación Emitidos']
-            if not os.path.exists(ruta_emitidos):
-                os.makedirs(ruta_emitidos)
-            filename = dato['Nombre Emitidos'] 
-            json.dump(response['mis_comprobantes_emitidos'], open(f'{ruta_emitidos}/{filename}.json', 'w'))
-            save_to_csv(response['mis_comprobantes_emitidos'], f'{ruta_emitidos}/{filename}.csv')
+            if descarga_emitidos:
+                guardar_data(dato['Ubicación Emitidos'], 
+                            dato['Nombre Emitidos'], 
+                            'mis_comprobantes_emitidos')
 
-        if descarga_recibidos:
-            ruta_recibidos = dato['Ubicación Recibidos']
-            if not os.path.exists(ruta_recibidos):
-                os.makedirs(ruta_recibidos)
-            filename = dato['Nombre Recibidos']
-            json.dump(response['mis_comprobantes_recibidos'], open(f'{ruta_recibidos}/{filename}.json', 'w'))
-            save_to_csv(response['mis_comprobantes_recibidos'], f'{ruta_recibidos}/{filename}.csv')
-
+            if descarga_recibidos:
+                guardar_data(dato['Ubicación Recibidos'], 
+                            dato['Nombre Recibidos'], 
+                            'mis_comprobantes_recibidos')
+                
+        except Exception as e:
+            errores.append(f"Error en {representado_nombre} - {representado_cuit}: {str(e)}")
+            
+    if errores:
+        open('errores.txt', 'w').write('\n'.join(errores))
         
 if __name__ == '__main__':
     consulta_mc_csv()
