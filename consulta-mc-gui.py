@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 import tkinter as tk
 import tkinter.ttk as ttk
-from bin.consulta import consulta_mc_csv
+from bin.consulta import consulta_mc_csv, consulta_requests_restantes
 import os
 import webbrowser
 from dotenv import load_dotenv
@@ -9,9 +9,16 @@ from tkinter import messagebox
 
 load_dotenv()
 
+
+def consulta_requests_restantes_gui(mail):
+    response = consulta_requests_restantes(mail)
+    text = "\n".join([f"{key}: {value}" for key, value in response.items()])
+
+    return text
+
+
 class GuiDescargaMC:
     def __init__(self, master=None):
-        # build ui
         self.Toplevel_1 = tk.Tk() if master is None else tk.Toplevel(master)
         self.Toplevel_1.configure(
             background="#2e2e2e",
@@ -59,6 +66,10 @@ class GuiDescargaMC:
         self.Configurar.configure(text='Abrir archivo de configuración', command=self.open_env_file)
         self.Configurar.pack(expand=True, pady=4, side="top")
 
+        self.Requests = ttk.Button(self.Toplevel_1)
+        self.Requests.configure(text='Requests Restantes', command=lambda: messagebox.showinfo("Requests Restantes", consulta_requests_restantes_gui(os.getenv("MAIL"))))
+        self.Requests.pack(expand=True, pady=4, side="top")
+
         self.Excel = ttk.Button(self.Toplevel_1)
         self.Excel.configure(text='CSV de Descarga', command=self.open_csv_file)
         self.Excel.pack(expand=True, padx=0, pady=4, side="top")
@@ -71,14 +82,16 @@ class GuiDescargaMC:
         self.Colaboraciones.configure(text='Donaciones', command=self.donaciones)
         self.Colaboraciones.pack(expand=True, pady=4, side="top")
 
-        # Main widget
         self.mainwindow = self.Toplevel_1
+
 
     def open_env_file(self):
         self.open_file_in_popup(".env")
 
+
     def open_csv_file(self):
         self.open_file_in_popup("Descarga-Mis-Comprobantes.csv")
+
 
     def open_file_in_popup(self, file_path):
         if os.path.exists(file_path):
@@ -88,6 +101,7 @@ class GuiDescargaMC:
             text_widget.pack(expand=True, fill="both")
             with open(file_path, "r") as file:
                 text_widget.insert(tk.END, file.read())
+
 
             def save_file():
                 with open(file_path, "w") as file:
@@ -101,17 +115,21 @@ class GuiDescargaMC:
         else:
             messagebox.showerror("Error", f"El archivo {file_path} no existe.")
 
+
     def confirmar(self):
         respuesta = messagebox.askyesno("Confirmar Descarga", "¿Está seguro que desea descargar los Archivos de Mis Comprobantes?")
         if respuesta:
             load_dotenv(override=True)
             consulta_mc_csv()
 
+
     def donaciones(self):
         webbrowser.open("https://cafecito.app/abustos")
 
+
     def run(self):
         self.mainwindow.mainloop()
+
 
 if __name__ == "__main__":
     app = GuiDescargaMC()

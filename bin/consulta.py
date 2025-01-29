@@ -44,6 +44,16 @@ def consulta_mc(desde,
     
     return response.json()
 
+
+def consulta_requests_restantes(mail):
+    
+    url = root_url + "/api/v1/users/consultas/" + mail
+    
+    response = requests.get(url)
+    
+    return response.json()
+
+
 def save_to_csv(data, filename):
     with open(filename, 'w', newline='') as csvfile:
         if data:
@@ -124,6 +134,8 @@ def consulta_mc_csv():
         
     if errores2:
         json.dump(errores2, open('errores.json', 'w'))
+
         
-if __name__ == '__main__':
-    consulta_mc_csv()
+#if __name__ == '__main__':
+    #consulta_mc_csv()
+    #consulta_requests_restantes(mail)
