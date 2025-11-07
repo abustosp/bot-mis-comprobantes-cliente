@@ -21,7 +21,7 @@ def consulta_mc(desde,
                 descarga_emitidos: bool, 
                 descarga_recibidos: bool):
     
-    url = root_url + "/api/v1/comprobantes/consulta"
+    url = root_url + "/api/v1/mis_comprobantes/consulta"
     
     headers = {
         'Content-Type': 'application/json',
@@ -47,7 +47,7 @@ def consulta_mc(desde,
 
 def consulta_requests_restantes(mail):
     
-    url = root_url + "/api/v1/users/consultas/" + mail
+    url = root_url + "/api/v1/user/consultas/" + mail
     
     response = requests.get(url)
     
