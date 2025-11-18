@@ -70,7 +70,7 @@ def consulta_mc(desde,
         'contrasena': contrasena,
         'descarga_emitidos': descarga_emitidos,
         'descarga_recibidos': descarga_recibidos,
-        'carga_minio': carga_minio,
+        'carga_minio': carga_minio,  # IMPORTANTE: True para obtener URLs de descarga desde MinIO
         'carga_json': carga_json,
         'b64': b64,
         'carga_s3': carga_s3
@@ -78,6 +78,10 @@ def consulta_mc(desde,
     
     if proxy_request is not None:
         payload['proxy_request'] = proxy_request
+    
+    # Debug: Mostrar configuración de carga (sin mostrar la contraseña)
+    debug_payload = {k: v for k, v in payload.items() if k != 'contrasena'}
+    print(f"📤 Request payload: carga_minio={payload['carga_minio']}, carga_json={payload['carga_json']}")
     
     response = requests.post(url, headers=headers, json=payload)
     
@@ -192,7 +196,7 @@ def leer_csv_con_encoding(archivo):
     for encoding in encodings:
         try:
             with open(archivo, 'r', encoding=encoding) as f:
-                return csv.DictReader(f, delimiter='|', quotechar="'")
+                return csv.DictReader(f, delimiter='|')
         except UnicodeDecodeError:
             continue
         except Exception as e:
@@ -312,12 +316,12 @@ def consulta_mc_csv():
     # Intentar leer el CSV con diferentes encodings
     try:
         with open('Descarga-Mis-Comprobantes.csv', 'r', encoding='cp1252') as f:
-            datos = list(csv.DictReader(f, delimiter='|', quotechar="'"))
+            datos = list(csv.DictReader(f, delimiter='|'))
         print("✓ CSV leído con encoding cp1252")
     except UnicodeDecodeError:
         try:
             with open('Descarga-Mis-Comprobantes.csv', 'r', encoding='utf-8') as f:
-                datos = list(csv.DictReader(f, delimiter='|', quotechar="'"))
+                datos = list(csv.DictReader(f, delimiter='|'))
             print("✓ CSV leído con encoding utf-8")
         except Exception as e:
             print(f"✗ Error al leer CSV: {e}")
