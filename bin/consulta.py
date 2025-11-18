@@ -21,35 +21,43 @@ def consulta_mc(desde,
                 descarga_emitidos: bool, 
                 descarga_recibidos: bool):
     
-    url = root_url + "/api/v1/mis_comprobantes/consulta"
+    url = root_url + "/mis-comprobantes"
     
     headers = {
         'Content-Type': 'application/json',
-        'x-api-key': api_key,
-        'email': mail
+        'x-api-key': api_key
     }
     
     payload = {
-        'desde': desde,
-        'hasta': hasta,
-        'cuit_inicio_sesion': cuit_inicio_sesion,
-        'representado_nombre': representado_nombre,
-        'representado_cuit': representado_cuit,
-        'contrasena': contrasena,
-        'descarga_emitidos': descarga_emitidos,
-        'descarga_recibidos': descarga_recibidos
-}
+        'email': mail,
+        'fecha_desde': desde,
+        'fecha_hasta': hasta,
+        'cuit_contribuyente': cuit_inicio_sesion,
+        'cuit_representada': representado_cuit,
+        'password': contrasena,
+        'descargar_recibidas': descarga_recibidos,
+        'descargar_emitidas': descarga_emitidos,
+        'carga_json': True
+    }
     
-    response = requests.post(url, headers=headers, data=json.dumps(payload))
+    response = requests.post(url, headers=headers, json=payload)
     
     return response.json()
 
 
 def consulta_requests_restantes(mail):
     
-    url = root_url + "/api/v1/user/consultas/" + mail
+    url = root_url + "/consultas-disponibles"
     
-    response = requests.get(url)
+    headers = {
+        'x-api-key': api_key
+    }
+    
+    params = {
+        'email': mail
+    }
+    
+    response = requests.get(url, headers=headers, params=params)
     
     return response.json()
 
@@ -93,7 +101,8 @@ def consulta_mc_csv():
                                     descarga_emitidos, 
                                     descarga_recibidos)
             
-            if 'detail' in response:
+            if 'error' in response or 'detail' in response:
+                error_msg = response.get('error', response.get('detail', 'Error desconocido'))
                 errores2.append({
                     'request': {
                         'desde': desde,
@@ -105,8 +114,7 @@ def consulta_mc_csv():
                         'descarga_emitidos': descarga_emitidos,
                         'descarga_recibidos': descarga_recibidos
                     },
-                    'message': response['detail']['message'],
-                    'error_code': response['detail']['error_code']
+                    'error': str(error_msg)
                 })
             
             def guardar_data(ubicacion, nombre, seccion_response):
@@ -116,15 +124,15 @@ def consulta_mc_csv():
                 json.dump(response[seccion_response], open(f'{ubicacion}/{filename}.json', 'w'))
                 save_to_csv(response[seccion_response], f'{ubicacion}/{filename}.csv')
 
-            if descarga_emitidos:
+            if descarga_emitidos and 'emitidas' in response:
                 guardar_data(dato['Ubicación Emitidos'], 
                             dato['Nombre Emitidos'], 
-                            'mis_comprobantes_emitidos')
+                            'emitidas')
 
-            if descarga_recibidos:
+            if descarga_recibidos and 'recibidas' in response:
                 guardar_data(dato['Ubicación Recibidos'], 
                             dato['Nombre Recibidos'], 
-                            'mis_comprobantes_recibidos')
+                            'recibidas')
                 
         except Exception as e:
             errores.append(f"Error en {representado_nombre} - {representado_cuit}: {str(e)}")
