@@ -1,342 +1,120 @@
-# Consulta de Mis Comprobantes vía API
+# Cliente API Mr Bot (Mis Comprobantes y módulos AFIP)
 
-Cliente para descargar y gestionar comprobantes de AFIP/ARCA mediante la API de Mr. Bot. Permite realizar consultas masivas, descargar archivos desde MinIO con múltiples workers concurrentes y gestionar tus comprobantes emitidos y recibidos.
+Cliente Tkinter y librerías Python para usar los endpoints de api-bots.mrbot.com.ar (Mis Comprobantes, RCEL, SCT, CCMA, Apócrifos y Consulta CUIT). Incluye ejemplos de Excel, descargas desde MinIO y flujo masivo desde archivos.
 
-## 📋 Tabla de Contenidos
+## Contenido rápido
+- Qué necesitas
+- Instalación y configuración
+- Ejecutar la GUI
+- Uso programático
+- Estructura del proyecto
+- Endpoints y módulos clave
+- Tests y soporte
 
-- [Características](#-características)
-- [Estructura del Proyecto](#-estructura-del-proyecto)
-- [Requisitos](#-requisitos)
-- [Instalación](#-instalación)
-- [Configuración](#️-configuración)
-- [Uso](#-uso)
-- [API Reference](#-api-reference)
-- [Contribuciones](#-contribuciones)
-- [Licencia](#-licencia)
-- [Donaciones](#-donaciones)
+## Qué necesitas
+- Python 3.8+
+- Cuenta y API key en api-bots.mrbot.com.ar
+- Dependencias: `pip install -r requirements.txt`
 
-## ✨ Características
-
-- 🚀 **Consultas masivas**: Procesa múltiples consultas desde un archivo CSV
-- ⚡ **Descargas concurrentes**: Descarga archivos desde MinIO con 10 workers simultáneos
-- 🔄 **API v1 actualizada**: Utiliza los últimos endpoints de api-bots.mrbot.com.ar
-- 💾 **Múltiples formatos**: Soporta JSON, CSV y archivos ZIP desde MinIO
-- 🖥️ **Interfaz gráfica**: GUI simple con Tkinter para facilitar el uso
-- 📊 **Gestión de errores**: Registro detallado de errores en archivos JSON y TXT
-- 🔐 **Configuración segura**: Variables de entorno con dotenv
-
-## 📁 Estructura del Proyecto
-
-```
-mis-comprobantes-cliente/
-├── bin/
-│   ├── consulta.py              # Lógica principal de consultas y descargas
-│   ├── ABP-blanco-en-fondo-negro.ico
-│   └── ABP blanco sin fondo.png
-├── Descargas/                   # Directorio para archivos descargados
-│   ├── Emitidos.csv
-│   ├── Emitidos.json
-│   ├── Recibidos.csv
-│   └── Recibidos.json
-├── Ejecutable/                  # Versión compilada (release)
-│   ├── bin/
-│   ├── mrbot                    # Ejecutable Linux
-│   ├── Descarga-Mis-Comprobantes.csv
-│   ├── Descarga-Mis-Comprobantes.xlsx
-│   ├── LICENSE
-│   └── README.md
-├── cliente_api_mrbot.py         # Ejemplo de cliente con Streamlit
-├── mrbot.py                     # GUI con Tkinter
-├── Descarga-Mis-Comprobantes.csv   # Plantilla CSV para consultas masivas
-├── Descarga-Mis-Comprobantes.xlsx  # Plantilla Excel
-├── .env                         # Variables de entorno (no versionado)
-├── .env.example                 # Ejemplo de configuración
-├── autopyLinux.json             # Configuración auto-py-to-exe Linux
-├── autopyWindows.json           # Configuración auto-py-to-exe Windows
-├── requirements.txt             # Dependencias Python
-├── LICENSE                      # Licencia del proyecto
-└── README.md                    # Este archivo
+## Instalación y configuración
+```bash
+git clone https://github.com/abustosp/bot-mis-comprobantes-cliente.git
+cd bot-mis-comprobantes-cliente
+python3 -m venv venv
+source venv/bin/activate          # en Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env              # edita con tus credenciales
 ```
 
-## 📦 Requisitos
-
-- Python 3.8 o superior
-- Cuenta activa en api-bots.mrbot.com.ar
-- API Key válida
-
-### Dependencias
-
-```txt
-requests>=2.32.3
-python-dotenv>=1.0.1
-certifi>=2024.12.14
-charset-normalizer>=3.4.1
-idna>=3.10
-urllib3>=2.3.0
-```
-
-## 🔧 Instalación
-
-### Opción 1: Ejecutable (Recomendado para usuarios finales)
-
-1. Descarga la última versión desde [releases](https://github.com/abustosp/bot-mis-comprobantes-cliente/releases)
-2. Descomprime el archivo
-3. Ejecuta el archivo `mrbot` (Linux) o `mrbot.exe` (Windows)
-
-### Opción 2: Desde código fuente
-
-1. **Clonar el repositorio**:
-   ```bash
-   git clone https://github.com/abustosp/bot-mis-comprobantes-cliente.git
-   cd bot-mis-comprobantes-cliente
-   ```
-
-2. **Crear entorno virtual**:
-   ```bash
-   python -m venv venv
-   ```
-
-3. **Activar entorno virtual**:
-   
-   Linux/Mac:
-   ```bash
-   source venv/bin/activate
-   ```
-   
-   Windows PowerShell:
-   ```powershell
-   .\venv\Scripts\Activate
-   ```
-   
-   Windows CMD:
-   ```cmd
-   .\venv\Scripts\activate.bat
-   ```
-
-4. **Instalar dependencias**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## ⚙️ Configuración
-
-1. **Crear archivo `.env`** en la raíz del proyecto con las siguientes variables:
-
+`.env` mínimo:
 ```env
 URL=https://api-bots.mrbot.com.ar
 MAIL=tu_email@ejemplo.com
-API_KEY=tu_api_key_aqui
+API_KEY=tu_api_key
 ```
 
-2. **Configurar el archivo CSV** `Descarga-Mis-Comprobantes.csv`:
+Archivos de entrada:
+- `Descarga-Mis-Comprobantes.xlsx` o `.csv` (plantillas en la raíz).
+- Excels de ejemplo en `ejemplos_api/` (la GUI los genera si faltan).
 
-```csv
-Procesar|Desde|Hasta|CUIT Inicio|Representado|CUIT Representado|Clave|Descarga Emitidos|Descarga Recibidos|Ubicacion Emitidos|Nombre Emitidos|Ubicacion Recibidos|Nombre Recibidos
-si|01/01/2024|31/12/2024|20123456780|EMPRESA EJEMPLO SA|30876543210|MiClave123|si|si|./Descargas|Emitidos|./Descargas|Recibidos
-```
-
-**Columnas del CSV:**
-- `Procesar`: "si" o "no" para procesar la fila
-- `Desde`: Fecha inicio (DD/MM/YYYY)
-- `Hasta`: Fecha fin (DD/MM/YYYY)
-- `CUIT Inicio`: CUIT del representante
-- `Representado`: Nombre del representado
-- `CUIT Representado`: CUIT del representado
-- `Clave`: Contraseña fiscal
-- `Descarga Emitidos`: "si" o "no"
-- `Descarga Recibidos`: "si" o "no"
-- `Ubicacion Emitidos`: Carpeta destino (sin tilde para compatibilidad)
-- `Nombre Emitidos`: Nombre base del archivo
-- `Ubicacion Recibidos`: Carpeta destino (sin tilde para compatibilidad)
-- `Nombre Recibidos`: Nombre base del archivo
-
-**Notas importantes:**
-- El CSV se lee automáticamente con encoding cp1252, si falla intenta utf-8
-- Los archivos se descargan desde MinIO como ZIP
-- Se extrae automáticamente el CSV del ZIP con el nombre especificado
-- Los archivos ZIP temporales se eliminan después de la extracción
-- **Creación inteligente de directorios:**
-  - Primero intenta crear el directorio especificado
-  - Si falla (permisos, ruta inválida), usa: `./descargas/mis_compobantes/<CUIT_representante>/<NombreArchivo>`
-  - Si todo falla, usa: `./Descargas/`
-- Puedes probar rápido con el Excel de ejemplo `./ejemplos_api/mis_comprobantes.xlsx` (la GUI lo usa si no seleccionas otro archivo)
-
-## 🚀 Uso
-
-### Interfaz Gráfica (GUI)
-
+## Ejecutar la GUI
 ```bash
 python mrbot.py
 ```
+Desde la GUI puedes:
+- Editar base URL, API key y mail.
+- Procesar Mis Comprobantes masivo (usa `bin.consulta.consulta_mc_csv`).
+- Consultar RCEL, SCT, CCMA, Apócrifos y CUIT (individual/masivo según módulo).
+- Previsualizar Excels y descargar archivos desde MinIO.
 
-Desde la interfaz podrás:
-- Editar la configuración (.env)
-- Ver requests restantes
-- Editar el CSV de descargas
-- Iniciar el proceso de descarga
-- Realizar donaciones
-
-### Modo Programático
-
+## Uso programático
 ```python
-from bin.consulta import consulta_mc, descargar_archivos_minio_concurrente
+from bin.consulta import consulta_mc, consulta_mc_csv
 
-# Realizar una consulta
-response = consulta_mc(
+# Consulta individual
+resp = consulta_mc(
     desde="01/01/2024",
     hasta="31/01/2024",
     cuit_inicio_sesion="20123456780",
     representado_nombre="EMPRESA SA",
     representado_cuit="30876543210",
-    contrasena="MiClave123",
+    contrasena="clave",
     descarga_emitidos=True,
     descarga_recibidos=True,
     carga_minio=True,
-    carga_json=True
+    carga_json=True,
 )
 
-# Descargar archivos desde MinIO (10 workers concurrentes)
+# Procesamiento masivo (Excel/CSV)
+consulta_mc_csv("./ejemplos_api/mis_comprobantes.xlsx")
+```
+
+Descarga desde MinIO con workers concurrentes:
+```python
+from bin.consulta import descargar_archivos_minio_concurrente
+
 archivos = [
-    {'url': response['mis_comprobantes_emitidos_url_minio'], 'destino': './emitidos.zip'},
-    {'url': response['mis_comprobantes_recibidos_url_minio'], 'destino': './recibidos.zip'}
+    {"url": resp["mis_comprobantes_emitidos_url_minio"], "destino": "./emitidos.zip"},
+    {"url": resp["mis_comprobantes_recibidos_url_minio"], "destino": "./recibidos.zip"},
 ]
 resultados = descargar_archivos_minio_concurrente(archivos, max_workers=10)
 ```
 
-### Procesamiento Masivo desde CSV
-
-```python
-from bin.consulta import consulta_mc_csv
-
-# Procesa todas las filas del CSV/Excel con Procesar='si'
-# Pasa un Excel personalizado (ej: ./ejemplos_api/mis_comprobantes.xlsx) o usa el default.
-consulta_mc_csv("./ejemplos_api/mis_comprobantes.xlsx")
+## Estructura del proyecto
+```
+.
+├── mrbot.py                 # Menú principal GUI
+├── mrbot_app/               # Helpers y ventanas Tkinter por módulo
+│   ├── helpers.py
+│   └── windows/             # mis_comprobantes, rcel, sct, ccma, apocrifos, consulta_cuit
+├── bin/consulta.py          # Lógica Mis Comprobantes y descargas MinIO
+├── ejemplos_api/            # Excels de ejemplo (autogenerables)
+├── Descarga-Mis-Comprobantes.{csv,xlsx}
+├── tests/                   # Tests existentes (reubicados)
+├── requirements.txt
+├── README.md
+└── LICENSE
 ```
 
-## 📚 API Reference
+## Endpoints y módulos clave
+- Mis Comprobantes: `POST /api/v1/mis_comprobantes/consulta` (GUI: “Descarga Mis Comprobantes”, código: `bin.consulta.consulta_mc`)
+- RCEL: `POST /api/v1/rcel/consulta` (GUI: ventana RCEL)
+- SCT: `POST /api/v1/sct/consulta` (GUI: ventana SCT con descargas MinIO)
+- CCMA: `POST /api/v1/ccma/consulta`
+- Apócrifos: `GET /api/v1/apoc/consulta/{cuit}`
+- Consulta CUIT: `POST /api/v1/consulta_cuit/{individual|masivo}`
+- Requests restantes: `GET /api/v1/user/consultas/{email}`
 
-### Endpoints Utilizados
+Helpers reutilizables: `mrbot_app/helpers.py` (safe_get/safe_post, previews de DataFrame, parseo de booleanos, etc.).
 
-#### 1. Consulta de Mis Comprobantes
-```
-POST https://api-bots.mrbot.com.ar/api/v1/mis_comprobantes/consulta
-```
-
-**Headers:**
-- `x-api-key`: Tu API key
-- `email`: Tu email registrado
-- `Content-Type`: application/json
-
-**Body:**
-```json
-{
-  "desde": "01/01/2024",
-  "hasta": "31/12/2024",
-  "cuit_inicio_sesion": "20123456780",
-  "representado_nombre": "EMPRESA SA",
-  "representado_cuit": "30876543210",
-  "contrasena": "password",
-  "descarga_emitidos": true,
-  "descarga_recibidos": true,
-  "carga_minio": true,
-  "carga_json": true,
-  "b64": false,
-  "carga_s3": false
-}
+## Tests y validación
+```bash
+python -m py_compile mrbot.py mrbot_app/*.py mrbot_app/windows/*.py
+# Tests (algunos requieren credenciales/Excels)
+pytest tests  # o python tests/test_sct_descarga.py
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Consulta exitosa",
-  "mis_comprobantes_emitidos_url_minio": "https://minio.example.com/...",
-  "mis_comprobantes_recibidos_url_minio": "https://minio.example.com/...",
-  "mis_comprobantes_emitidos_json": [...],
-  "mis_comprobantes_recibidos_json": [...]
-}
-```
-
-#### 2. Consultas Disponibles
-```
-GET https://api-bots.mrbot.com.ar/api/v1/user/consultas/{email}
-```
-
-**Headers:**
-- `x-api-key`: Tu API key
-
-**Response:**
-```json
-{
-  "consultas_disponibles": 95,
-  "maximas_consultas_mensuales": 100,
-  "consultas_realizadas_mes_actual": 5
-}
-```
-
-### Funciones Principales
-
-#### `consulta_mc()`
-Realiza una consulta de Mis Comprobantes.
-
-**Parámetros:**
-- `desde` (str): Fecha inicio DD/MM/YYYY
-- `hasta` (str): Fecha fin DD/MM/YYYY
-- `cuit_inicio_sesion` (str): CUIT del representante
-- `representado_nombre` (str): Nombre del representado
-- `representado_cuit` (str): CUIT del representado
-- `contrasena` (str): Contraseña fiscal
-- `descarga_emitidos` (bool): Descargar emitidos
-- `descarga_recibidos` (bool): Descargar recibidos
-- `carga_minio` (bool): Subir a MinIO (default: True)
-- `carga_json` (bool): Obtener JSON (default: True)
-- `b64` (bool): Archivos en base64 (default: False)
-- `carga_s3` (bool): Subir a S3 (default: False)
-- `proxy_request` (bool|None): Usar proxy (default: None)
-
-#### `descargar_archivos_minio_concurrente()`
-Descarga múltiples archivos desde MinIO con workers concurrentes.
-
-**Parámetros:**
-- `urls` (List[Dict]): Lista de {'url': str, 'destino': str}
-- `max_workers` (int): Número de workers (default: 10)
-
-**Retorna:** Lista de resultados con status de cada descarga
-
-#### `consulta_requests_restantes()`
-Consulta las requests disponibles del usuario.
-
-**Parámetros:**
-- `mail` (str): Email del usuario
-
-**Retorna:** Dict con información de consultas
-
-## 🤝 Contribuciones
-
-Las contribuciones son bienvenidas. Por favor:
-
-1. Fork del proyecto
-2. Crea tu rama de características (`git checkout -b feature/NuevaCaracteristica`)
-3. Commit de tus cambios (`git commit -m 'Agrega nueva característica'`)
-4. Push a la rama (`git push origin feature/NuevaCaracteristica`)
-5. Abre un Pull Request
-
-## 📄 Licencia
-
-Este proyecto está bajo la Licencia propia. Consulta el archivo [LICENSE](LICENSE) para más detalles.
-
-## ☕ Donaciones
-
-Si este proyecto te resulta útil, considera apoyar su desarrollo:
-
-[![Cafecito](https://cdn.cafecito.app/imgs/buttons/button_2.svg)](https://cafecito.app/abustos)
-
-## 📧 Contacto
-
-- **Autor**: Agustín Bustos Piasentini
-- **Web**: [https://www.Agustin-Bustos-Piasentini.com.ar/](https://www.Agustin-Bustos-Piasentini.com.ar/)
-- **Issues**: [GitHub Issues](https://github.com/abustosp/bot-mis-comprobantes-cliente/issues)
-
----
-
-**Nota**: Este cliente utiliza la API v1 de api-bots.mrbot.com.ar. Para más información sobre la API, visita [https://api-bots.mrbot.com.ar/docs](https://api-bots.mrbot.com.ar/docs)
+## Soporte, licencia y donaciones
+- Issues y soporte: https://github.com/abustosp/bot-mis-comprobantes-cliente/issues
+- Licencia: ver `LICENSE`
+- Donaciones: https://cafecito.app/abustos
