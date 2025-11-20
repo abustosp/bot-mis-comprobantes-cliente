@@ -853,18 +853,15 @@ class SctWindow(BaseWindow):
             return
         stamp = datetime.now().strftime("%H:%M:%S")
         line = f"[{stamp}] {prefix}{text}" if prefix else f"[{stamp}] {text}"
+        # Formato estetico: separar bloques y resaltar inicios y errores
+        if line.lower().startswith("[") and any(k in line.lower() for k in ["procesando", "consulta individual", "fila "]):
+            line = "\n" + ("=" * 60) + "\n" + line
+        if "error" in line.lower():
+            line = line + "\n" + ("-" * 60)
         self.log_text.configure(state="normal")
         self.log_text.insert(tk.END, line)
         if not line.endswith("\n"):
             self.log_text.insert(tk.END, "\n")
-        self.log_text.see(tk.END)
-        self.log_text.configure(state="disabled")
-        self.log_text.update_idletasks()
-
-        if not text:
-            return
-        self.log_text.configure(state="normal")
-        self.log_text.insert(tk.END, text)
         self.log_text.see(tk.END)
         self.log_text.configure(state="disabled")
         self.log_text.update_idletasks()
