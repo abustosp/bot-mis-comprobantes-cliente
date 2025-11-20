@@ -276,13 +276,15 @@ def extraer_csv_de_zip(zip_path, destino_csv):
         return False
 
 
-def crear_directorio_seguro(ruta, nombre_representado):
+def crear_directorio_seguro(ruta, nombre_representado, representado_cuit: Optional[str] = None, nombre_archivo: Optional[str] = None):
     """
     Intenta crear un directorio. Si falla, retorna una ruta alternativa.
     
     Args:
         ruta: Ruta deseada para el directorio
         nombre_representado: Nombre del representado para usar en fallback
+        representado_cuit: CUIT del representado para construir fallback específico
+        nombre_archivo: Nombre base para carpeta de fallback
     
     Returns:
         str: Ruta del directorio (original o fallback)
@@ -305,8 +307,12 @@ def crear_directorio_seguro(ruta, nombre_representado):
         # Limpiar nombre del representado para usarlo como nombre de carpeta
         nombre_limpio = "".join(c for c in nombre_representado if c.isalnum() or c in (' ', '-', '_')).strip()
         nombre_limpio = nombre_limpio.replace(' ', '_')
-        
-        fallback_dir = os.path.join('Descargas', nombre_limpio)
+        cuit_limpio = str(representado_cuit).strip() if representado_cuit else ""
+        nombre_dir_final = nombre_archivo or nombre_limpio or "descarga"
+        if cuit_limpio:
+            fallback_dir = os.path.join(cuit_limpio, nombre_dir_final)
+        else:
+            fallback_dir = os.path.join('Descargas', nombre_dir_final)
         try:
             os.makedirs(fallback_dir, exist_ok=True)
             print(f"⚠ No se pudo usar {ruta}: {e}")
@@ -461,7 +467,12 @@ def consulta_mc_csv():
                 nombre_emitidos = _to_str(dato.get('Nombre Emitidos', ''))
                 
                 # Intentar crear directorio, con fallback si falla
-                ubicacion_emitidos = crear_directorio_seguro(ubicacion_deseada, representado_nombre)
+                ubicacion_emitidos = crear_directorio_seguro(
+                    ubicacion_deseada,
+                    representado_nombre,
+                    representado_cuit=representado_cuit,
+                    nombre_archivo=nombre_emitidos
+                )
                 
                 # Debug: Verificar si existe el campo de MinIO
                 print(f"\n🔍 Emitidos - Verificando campo MinIO...")
@@ -495,7 +506,12 @@ def consulta_mc_csv():
                 nombre_recibidos = _to_str(dato.get('Nombre Recibidos', ''))
                 
                 # Intentar crear directorio, con fallback si falla
-                ubicacion_recibidos = crear_directorio_seguro(ubicacion_deseada, representado_nombre)
+                ubicacion_recibidos = crear_directorio_seguro(
+                    ubicacion_deseada,
+                    representado_nombre,
+                    representado_cuit=representado_cuit,
+                    nombre_archivo=nombre_recibidos
+                )
                 
                 # Debug: Verificar si existe el campo de MinIO
                 print(f"\n🔍 Recibidos - Verificando campo MinIO...")
