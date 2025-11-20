@@ -3,7 +3,6 @@ import os
 import sys
 import json
 import io
-import base64
 import contextlib
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -213,6 +212,9 @@ def ensure_example_excels() -> Dict[str, str]:
                     "deuda": "SI",
                     "vencimientos": "SI",
                     "presentacion_ddjj": "SI",
+                    "excel": "SI",
+                    "csv": "SI",
+                    "pdf": "NO",
                     "ubicacion_deuda": "./Descargas",
                     "nombre_deuda": "deuda-demo",
                     "ubicacion_vencimientos": "./Descargas",
@@ -228,6 +230,9 @@ def ensure_example_excels() -> Dict[str, str]:
                     "deuda": "NO",
                     "vencimientos": "NO",
                     "presentacion_ddjj": "NO",
+                    "excel": "NO",
+                    "csv": "NO",
+                    "pdf": "NO",
                     "ubicacion_deuda": "./Descargas",
                     "nombre_deuda": "deuda-no",
                     "ubicacion_vencimientos": "./Descargas",
@@ -711,11 +716,11 @@ class SctWindow(BaseWindow):
         self.opt_vencimientos = tk.BooleanVar(value=True)
         self.opt_presentacion = tk.BooleanVar(value=True)
         ttk.Checkbutton(opts, text="Excel MinIO", variable=self.opt_excel_minio).grid(row=0, column=0, padx=4, pady=2, sticky="w")
-        ttk.Checkbutton(opts, text="Excel base64", variable=self.opt_excel_b64).grid(row=0, column=1, padx=4, pady=2, sticky="w")
+        ttk.Checkbutton(opts, text="Excel base64", variable=self.opt_excel_b64, state="disabled").grid(row=0, column=1, padx=4, pady=2, sticky="w")
         ttk.Checkbutton(opts, text="CSV MinIO", variable=self.opt_csv_minio).grid(row=1, column=0, padx=4, pady=2, sticky="w")
-        ttk.Checkbutton(opts, text="CSV base64", variable=self.opt_csv_b64).grid(row=1, column=1, padx=4, pady=2, sticky="w")
+        ttk.Checkbutton(opts, text="CSV base64", variable=self.opt_csv_b64, state="disabled").grid(row=1, column=1, padx=4, pady=2, sticky="w")
         ttk.Checkbutton(opts, text="PDF MinIO", variable=self.opt_pdf_minio).grid(row=2, column=0, padx=4, pady=2, sticky="w")
-        ttk.Checkbutton(opts, text="PDF base64", variable=self.opt_pdf_b64).grid(row=2, column=1, padx=4, pady=2, sticky="w")
+        ttk.Checkbutton(opts, text="PDF base64", variable=self.opt_pdf_b64, state="disabled").grid(row=2, column=1, padx=4, pady=2, sticky="w")
         ttk.Checkbutton(opts, text="proxy_request", variable=self.opt_proxy).grid(row=3, column=0, padx=4, pady=2, sticky="w")
         ttk.Checkbutton(opts, text="Incluir deuda", variable=self.opt_deuda).grid(row=4, column=0, padx=4, pady=2, sticky="w")
         ttk.Checkbutton(opts, text="Incluir vencimientos", variable=self.opt_vencimientos).grid(row=4, column=1, padx=4, pady=2, sticky="w")
@@ -763,16 +768,6 @@ class SctWindow(BaseWindow):
             cuit_representante=cuit_login or None,
         )
 
-    def _save_b64_file(self, content_b64: str, dest_path: str) -> Tuple[bool, Optional[str]]:
-        try:
-            data = base64.b64decode(content_b64)
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-            with open(dest_path, "wb") as f:
-                f.write(data)
-            return True, None
-        except Exception as exc:
-            return False, str(exc)
-
     def _download_variant(
         self,
         data: Dict[str, Any],
@@ -785,23 +780,18 @@ class SctWindow(BaseWindow):
         ext_map = {"excel": "xlsx", "csv": "csv", "pdf": "pdf"}
         ext = ext_map[fmt]
         minio_flag = outputs.get(f"{prefix}_{fmt}_minio")
-        b64_flag = outputs.get(f"{prefix}_{fmt}_b64")
-        if not minio_flag and not b64_flag:
+        if not minio_flag:
             return False, None
 
         minio_key = f"{prefix}_{fmt}_url_minio"
-        b64_key = f"{prefix}_{fmt}_b64"
         filename = self._ensure_extension(base_name, ext)
         dest_path = os.path.join(dest_dir, filename)
 
-        if minio_flag and data.get(minio_key):
+        if data.get(minio_key):
             res = descargar_archivo_minio(data.get(minio_key), dest_path)
             return res.get("success", False), res.get("error")
-        if b64_flag and data.get(b64_key):
-            ok, err = self._save_b64_file(data.get(b64_key), dest_path)
-            return ok, err
 
-        return False, "No se recibió contenido para descargar."
+        return False, "No se recibió URL de MinIO para descargar."
 
     def _process_downloads_per_block(
         self,
@@ -829,27 +819,56 @@ class SctWindow(BaseWindow):
                     errors.append(f"{prefix}-{fmt}: {err}")
         return total_downloaded, errors
 
-    def build_output_flags(self, include_deuda: bool, include_vencimientos: bool, include_ddjj: bool) -> Tuple[Dict[str, bool], bool]:
+    def _filter_procesar_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        if "procesar" not in df.columns:
+            return df
+        mask = df["procesar"].astype(str).str.lower().isin(["si", "sí", "yes", "y", "1"])
+        return df[mask]
+
+    def _row_format_flags(self, row: Optional[pd.Series] = None, prefer_row: bool = False) -> Tuple[bool, bool, bool]:
+        """
+        Determina qué formatos (Excel/CSV/PDF) deben solicitarse, combinando los defaults de la GUI
+        con las columnas opcionales del Excel (excel/csv/pdf).
+        """
+        excel_enabled = bool(self.opt_excel_minio.get())
+        csv_enabled = bool(self.opt_csv_minio.get())
+        pdf_enabled = bool(self.opt_pdf_minio.get())
+
+        if row is not None:
+            def pick(key: str, current: bool) -> bool:
+                if key in row:
+                    value = row.get(key)
+                    if value is None or str(value).strip() == "":
+                        return current if not prefer_row else False
+                    return parse_bool_cell(value, default=current if not prefer_row else False)
+                return current if not prefer_row else current
+
+            excel_enabled = pick("excel", excel_enabled)
+            csv_enabled = pick("csv", csv_enabled)
+            pdf_enabled = pick("pdf", pdf_enabled)
+
+        return excel_enabled, csv_enabled, pdf_enabled
+
+    def build_output_flags(
+        self,
+        include_deuda: bool,
+        include_vencimientos: bool,
+        include_ddjj: bool,
+        excel_enabled: bool,
+        csv_enabled: bool,
+        pdf_enabled: bool,
+    ) -> Tuple[Dict[str, bool], bool]:
         """
         Mapea las selecciones de la UI a los flags reales del endpoint SCT.
         Devuelve el payload parcial y si al menos una salida quedó habilitada.
         """
         outputs: Dict[str, bool] = {
-            "vencimientos_excel_b64": False,
-            "vencimientos_csv_b64": False,
-            "vencimientos_pdf_b64": False,
             "vencimientos_excel_minio": False,
             "vencimientos_csv_minio": False,
             "vencimientos_pdf_minio": False,
-            "deudas_excel_b64": False,
-            "deudas_csv_b64": False,
-            "deudas_pdf_b64": False,
             "deudas_excel_minio": False,
             "deudas_csv_minio": False,
             "deudas_pdf_minio": False,
-            "ddjj_pendientes_excel_b64": False,
-            "ddjj_pendientes_csv_b64": False,
-            "ddjj_pendientes_pdf_b64": False,
             "ddjj_pendientes_excel_minio": False,
             "ddjj_pendientes_csv_minio": False,
             "ddjj_pendientes_pdf_minio": False,
@@ -861,22 +880,13 @@ class SctWindow(BaseWindow):
             nonlocal selected
             if not enabled:
                 return
-            if self.opt_excel_b64.get():
-                outputs[f"{prefix}_excel_b64"] = True
-                selected = True
-            if self.opt_csv_b64.get():
-                outputs[f"{prefix}_csv_b64"] = True
-                selected = True
-            if self.opt_pdf_b64.get():
-                outputs[f"{prefix}_pdf_b64"] = True
-                selected = True
-            if self.opt_excel_minio.get():
+            if excel_enabled:
                 outputs[f"{prefix}_excel_minio"] = True
                 selected = True
-            if self.opt_csv_minio.get():
+            if csv_enabled:
                 outputs[f"{prefix}_csv_minio"] = True
                 selected = True
-            if self.opt_pdf_minio.get():
+            if pdf_enabled:
                 outputs[f"{prefix}_pdf_minio"] = True
                 selected = True
 
@@ -892,7 +902,8 @@ class SctWindow(BaseWindow):
         include_deuda = bool(self.opt_deuda.get())
         include_vencimientos = bool(self.opt_vencimientos.get())
         include_ddjj = bool(self.opt_presentacion.get())
-        outputs, has_outputs = self.build_output_flags(include_deuda, include_vencimientos, include_ddjj)
+        excel_fmt, csv_fmt, pdf_fmt = self._row_format_flags()
+        outputs, has_outputs = self.build_output_flags(include_deuda, include_vencimientos, include_ddjj, excel_fmt, csv_fmt, pdf_fmt)
         if not has_outputs:
             messagebox.showwarning(
                 "Falta salida",
@@ -915,12 +926,16 @@ class SctWindow(BaseWindow):
         if not filename:
             return
         try:
-            self.sct_df = pd.read_excel(filename, dtype=str).fillna("")
-            self.sct_df.columns = [c.strip().lower() for c in self.sct_df.columns]
-            df_prev = self.sct_df
-            if "procesar" in df_prev.columns:
-                df_prev = df_prev[df_prev["procesar"].str.lower().isin(["si", "sí", "yes", "y", "1"])]
-            self.set_preview(self.preview, "Excel cargado. Usa 'Previsualizar Excel'.")
+            df = pd.read_excel(filename, dtype=str).fillna("")
+            df.columns = [c.strip().lower() for c in df.columns]
+            df = self._filter_procesar_rows(df)
+            if df.empty:
+                self.sct_df = None
+                self.set_preview(self.preview, "Sin filas marcadas con procesar=SI en el Excel seleccionado.")
+                messagebox.showwarning("Sin filas a procesar", "No hay filas marcadas con procesar=SI en el Excel.")
+                return
+            self.sct_df = df
+            self.set_preview(self.preview, df_preview(df, rows=min(20, len(df))))
         except Exception as exc:
             messagebox.showerror("Error", f"No se pudo leer el Excel: {exc}")
 
@@ -928,17 +943,6 @@ class SctWindow(BaseWindow):
         if self.sct_df is None or self.sct_df.empty:
             messagebox.showerror("Error", "Carga un Excel primero.")
             return
-        # Verificación global por si ninguna salida está elegida
-        _, has_outputs_default = self.build_output_flags(
-            bool(self.opt_deuda.get()), bool(self.opt_vencimientos.get()), bool(self.opt_presentacion.get())
-        )
-        if not has_outputs_default:
-            messagebox.showwarning(
-                "Falta salida",
-                "Selecciona un formato de salida (Excel/CSV/PDF) y habilita al menos un bloque (Deuda/Vencimientos/DDJJ).",
-            )
-            return
-
         base_url, api_key, email = self.config_provider()
         headers = build_headers(api_key, email)
         url = ensure_trailing_slash(base_url) + "api/v1/sct/consulta"
@@ -960,7 +964,8 @@ class SctWindow(BaseWindow):
                 if "presentacion_ddjj" in row
                 else bool(self.opt_presentacion.get())
             )
-            outputs, has_outputs = self.build_output_flags(include_deuda, include_venc, include_ddjj)
+            excel_fmt, csv_fmt, pdf_fmt = self._row_format_flags(row, prefer_row=True)
+            outputs, has_outputs = self.build_output_flags(include_deuda, include_venc, include_ddjj, excel_fmt, csv_fmt, pdf_fmt)
             if not has_outputs:
                 rows.append(
                     {
