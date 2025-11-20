@@ -2,6 +2,8 @@
 import os
 import sys
 import json
+import io
+import contextlib
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -355,6 +357,7 @@ class GuiDescargaMC(BaseWindow):
         self.config_pane = config_pane
         self.example_paths = example_paths or {}
         self.mc_df: Optional[pd.DataFrame] = None
+        self.processing = False
 
         container = ttk.Frame(self, padding=10)
         container.pack(fill="both", expand=True)
@@ -381,6 +384,18 @@ class GuiDescargaMC(BaseWindow):
         self.preview = self.add_preview(container, height=8, show=False)
         self.set_preview(self.preview, "Selecciona un Excel y presiona 'Previsualizar Excel' para ver los datos.")
 
+        log_frame = ttk.LabelFrame(container, text="Logs de ejecución")
+        log_frame.pack(fill="both", expand=True, pady=(6, 0))
+        self.log_text = tk.Text(
+            log_frame,
+            height=16,
+            wrap="word",
+            background="#1b1b1b",
+            foreground="#dcdcdc",
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.configure(state="disabled")
+
         self.selected_excel: Optional[str] = None
 
     def open_excel_file(self) -> None:
@@ -401,6 +416,42 @@ class GuiDescargaMC(BaseWindow):
 
     def preview_excel(self) -> None:
         self.open_df_preview(self.mc_df, title="Previsualización Mis Comprobantes")
+
+    def clear_logs(self) -> None:
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", tk.END)
+        self.log_text.configure(state="disabled")
+
+    def append_log(self, text: str) -> None:
+        if not text:
+            return
+        self.log_text.configure(state="normal")
+        self.log_text.insert(tk.END, text)
+        self.log_text.see(tk.END)
+        self.log_text.configure(state="disabled")
+        self.log_text.update_idletasks()
+
+    def _create_log_writer(self) -> io.TextIOBase:
+        gui = self
+
+        class _TkTextWriter(io.TextIOBase):
+            def write(self, message: str) -> int:
+                if not message:
+                    return 0
+                gui.append_log(message)
+                try:
+                    sys.__stdout__.write(message)
+                except Exception:
+                    pass
+                return len(message)
+
+            def flush(self) -> None:
+                try:
+                    sys.__stdout__.flush()
+                except Exception:
+                    pass
+
+        return _TkTextWriter()
 
     def open_example(self) -> None:
         path = self.example_paths.get("mis_comprobantes.xlsx")
@@ -430,13 +481,24 @@ class GuiDescargaMC(BaseWindow):
         if not os.path.exists(excel_to_use):
             messagebox.showerror("Error", f"No se encontró el archivo seleccionado: {excel_to_use}")
             return
+        if self.processing:
+            messagebox.showinfo("Proceso en curso", "Ya hay un proceso ejecutándose. Espera a que finalice.")
+            return
         answer = messagebox.askyesno("Confirmar", "Esta accion enviara las consultas. Continuar?")
         if answer:
             try:
-                consulta_mc_csv(excel_to_use)
-                messagebox.showinfo("OK", f"Proceso iniciado con {excel_to_use}. Revisa la consola para ver el avance.")
+                self.processing = True
+                self.clear_logs()
+                self.append_log(f"Iniciando proceso con: {excel_to_use}\n\n")
+                writer = self._create_log_writer()
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    consulta_mc_csv(excel_to_use)
+                messagebox.showinfo("Proceso finalizado", f"Consulta finalizada con {excel_to_use}. Revisa los logs en la ventana.")
             except Exception as exc:
                 messagebox.showerror("Error", f"No se pudo ejecutar consulta_mc_csv: {exc}")
+                self.append_log(f"\nError: {exc}\n")
+            finally:
+                self.processing = False
 
 
 # =========================
