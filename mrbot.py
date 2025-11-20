@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import os
+import re
 import sys
 import json
 import io
@@ -15,7 +16,7 @@ from tkinter import ttk
 
 from dotenv import load_dotenv
 from bin.consulta import consulta_mc_csv
-from bin.consulta import crear_directorio_seguro, descargar_archivo_minio
+from bin.consulta import descargar_archivo_minio
 
 # Cargar variables de entorno para valores por defecto
 load_dotenv()
@@ -759,14 +760,27 @@ class SctWindow(BaseWindow):
             clean = f"{clean}.{ext}"
         return clean
 
+    def _sanitize_identifier(self, value: str, fallback: str = "desconocido") -> str:
+        cleaned = re.sub(r"[^0-9A-Za-z._-]", "_", (value or "").strip())
+        cleaned = cleaned.strip("_")
+        return cleaned or fallback
+
+    def _is_writable_dir(self, path: str) -> bool:
+        try:
+            if not path:
+                return False
+            os.makedirs(path, exist_ok=True)
+            probe = os.path.join(path, ".mrbot_write_test")
+            with open(probe, "w", encoding="utf-8") as fh:
+                fh.write("ok")
+            os.remove(probe)
+            return True
+        except Exception:
+            return False
+
     def _prepare_dir(self, desired_path: str, base_name: str, cuit_representado: str, cuit_login: str) -> str:
-        return crear_directorio_seguro(
-            desired_path,
-            nombre_representado=cuit_representado or "Representado",
-            representado_cuit=cuit_representado or "",
-            nombre_archivo=base_name or "reporte",
-            cuit_representante=cuit_login or None,
-        )
+        # Solo normaliza. La verificación y fallback ocurren al descargar.
+        return (desired_path or "").strip()
 
     def _download_variant(
         self,
@@ -784,25 +798,51 @@ class SctWindow(BaseWindow):
         if not minio_flag:
             return False, None
 
-        minio_key = f"{prefix}_{fmt}_url_minio"
-        filename = self._ensure_extension(base_name, ext)
-        dest_path = os.path.join(dest_dir, filename)
-        url = data.get(minio_key)
+        minio_keys = [f"{prefix}_{fmt}_minio_url", f"{prefix}_{fmt}_url_minio"]
+        url = None
+        for key in minio_keys:
+            candidate = data.get(key)
+            if isinstance(candidate, str):
+                candidate = candidate.strip()
+            if candidate:
+                url = candidate
+                break
         if not url:
-            return False, f"Link inexistente: {minio_key}"
-        res = descargar_archivo_minio(url, dest_path)
-        if res.get("success"):
-            return True, None
-        fallback_dir = os.path.join("Descargas", "SCT", cuit_repr or "desconocido")
-        try:
-            os.makedirs(fallback_dir, exist_ok=True)
-        except Exception:
-            return False, res.get("error") or "No se pudo crear directorio fallback"
-        fallback_path = os.path.join(fallback_dir, filename)
-        res_fallback = descargar_archivo_minio(url, fallback_path)
-        if res_fallback.get("success"):
-            return True, None
-        return False, res_fallback.get("error") or res.get("error")
+            return False, f"Link inexistente o vacío ({' / '.join(minio_keys)})"
+
+        filename = self._ensure_extension(base_name, ext)
+        desired_dir = (dest_dir or "").strip()
+        candidate_dirs: List[Tuple[str, bool]] = []
+        dir_errors: List[str] = []
+
+        if desired_dir:
+            if self._is_writable_dir(desired_dir):
+                candidate_dirs.append((desired_dir, False))
+            else:
+                dir_errors.append(f"No se pudo usar el directorio indicado '{desired_dir}'")
+
+        fallback_dir = os.path.join("descargas", "SCT", self._sanitize_identifier(cuit_repr or "desconocido"))
+        if fallback_dir not in {d for d, _ in candidate_dirs}:
+            if self._is_writable_dir(fallback_dir):
+                candidate_dirs.append((fallback_dir, True))
+            else:
+                dir_errors.append(f"No se pudo preparar el directorio fallback '{fallback_dir}'")
+
+        if not candidate_dirs:
+            return False, "; ".join(dir_errors) if dir_errors else "No hay rutas disponibles para descargar"
+
+        last_error: Optional[str] = None
+        for target_dir, _is_fallback in candidate_dirs:
+            target_path = os.path.join(target_dir, filename)
+            res = descargar_archivo_minio(url, target_path)
+            if res.get("success"):
+                return True, None
+            last_error = res.get("error") or f"Error al descargar en {target_path}"
+
+        error_msgs = dir_errors.copy()
+        if last_error:
+            error_msgs.append(last_error)
+        return False, "; ".join(error_msgs) if error_msgs else "No se pudo completar la descarga"
 
     def _process_downloads_per_block(
         self,
