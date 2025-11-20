@@ -776,6 +776,7 @@ class SctWindow(BaseWindow):
         fmt: str,
         dest_dir: str,
         base_name: str,
+        cuit_repr: str,
     ) -> Tuple[bool, Optional[str]]:
         ext_map = {"excel": "xlsx", "csv": "csv", "pdf": "pdf"}
         ext = ext_map[fmt]
@@ -786,14 +787,22 @@ class SctWindow(BaseWindow):
         minio_key = f"{prefix}_{fmt}_url_minio"
         filename = self._ensure_extension(base_name, ext)
         dest_path = os.path.join(dest_dir, filename)
-
         url = data.get(minio_key)
-        if url:
-            res = descargar_archivo_minio(url, dest_path)
-            return res.get("success", False), res.get("error")
-
-        # No hay URL disponible para este tipo; no es un error fatal
-        return False, None
+        if not url:
+            return False, f"Link inexistente: {minio_key}"
+        res = descargar_archivo_minio(url, dest_path)
+        if res.get("success"):
+            return True, None
+        fallback_dir = os.path.join("Descargas", "SCT", cuit_repr or "desconocido")
+        try:
+            os.makedirs(fallback_dir, exist_ok=True)
+        except Exception:
+            return False, res.get("error") or "No se pudo crear directorio fallback"
+        fallback_path = os.path.join(fallback_dir, filename)
+        res_fallback = descargar_archivo_minio(url, fallback_path)
+        if res_fallback.get("success"):
+            return True, None
+        return False, res_fallback.get("error") or res.get("error")
 
     def _process_downloads_per_block(
         self,
@@ -814,7 +823,7 @@ class SctWindow(BaseWindow):
                 continue
             dest_dir = self._prepare_dir(cfg.get("path", ""), cfg.get("name", ""), cuit_repr, cuit_login)
             for fmt in ("excel", "csv", "pdf"):
-                success, err = self._download_variant(data, outputs, prefix, fmt, dest_dir, cfg.get("name", prefix))
+                success, err = self._download_variant(data, outputs, prefix, fmt, dest_dir, cfg.get("name", prefix), cuit_repr)
                 if success:
                     total_downloaded += 1
                 elif err:
