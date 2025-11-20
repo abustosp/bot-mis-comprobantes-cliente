@@ -787,11 +787,13 @@ class SctWindow(BaseWindow):
         filename = self._ensure_extension(base_name, ext)
         dest_path = os.path.join(dest_dir, filename)
 
-        if data.get(minio_key):
-            res = descargar_archivo_minio(data.get(minio_key), dest_path)
+        url = data.get(minio_key)
+        if url:
+            res = descargar_archivo_minio(url, dest_path)
             return res.get("success", False), res.get("error")
 
-        return False, "No se recibió URL de MinIO para descargar."
+        # No hay URL disponible para este tipo; no es un error fatal
+        return False, None
 
     def _process_downloads_per_block(
         self,
