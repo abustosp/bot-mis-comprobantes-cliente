@@ -842,26 +842,37 @@ class SctWindow(BaseWindow):
 
     def clear_logs(self) -> None:
         # Salvaguarda en caso de que log_text no se haya creado por algun error
-        if not hasattr(self, 'log_text') or self.log_text is None:
+        if not hasattr(self, "log_text") or self.log_text is None:
             return
-        self.log_text.configure(state='normal')
-        self.log_text.delete('1.0', tk.END)
-        self.log_text.configure(state='disabled')
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", tk.END)
+        self.log_text.configure(state="disabled")
 
-    def append_log(self, text: str, prefix: str = "") -> None:
+    def _format_log_line(self, text: str, prefix: str, style: Optional[str]) -> str:
+        body = f"{prefix}{text}".rstrip("\n")
+        main_sep = "=" * 64
+        sub_sep = "-" * 64
+
+        if style == "header":
+            return f"\n{main_sep}\n{body}\n{main_sep}\n"
+        if style == "section":
+            return f"\n{sub_sep}\n{body}\n"
+        if style == "bullet":
+            return f"  - {body}\n"
+        if style == "success":
+            return f"  [OK] {body}\n"
+        if style == "error":
+            return f"  [ERROR] {body}\n{sub_sep}\n"
+        if style == "raw":
+            return body
+        return body + ("\n" if not body.endswith("\n") else "")
+
+    def append_log(self, text: str, prefix: str = "", style: Optional[str] = None) -> None:
         if not text:
             return
-        stamp = datetime.now().strftime("%H:%M:%S")
-        line = f"[{stamp}] {prefix}{text}" if prefix else f"[{stamp}] {text}"
-        # Formato estetico: separar bloques y resaltar inicios y errores
-        if line.lower().startswith("[") and any(k in line.lower() for k in ["procesando", "consulta individual", "fila "]):
-            line = "\n" + ("=" * 60) + "\n" + line
-        if "error" in line.lower():
-            line = line + "\n" + ("-" * 60)
+        formatted = self._format_log_line(text, prefix, style)
         self.log_text.configure(state="normal")
-        self.log_text.insert(tk.END, line)
-        if not line.endswith("\n"):
-            self.log_text.insert(tk.END, "\n")
+        self.log_text.insert(tk.END, formatted)
         self.log_text.see(tk.END)
         self.log_text.configure(state="disabled")
         self.log_text.update_idletasks()
@@ -1090,9 +1101,10 @@ class SctWindow(BaseWindow):
         payload.update(outputs)
         url = ensure_trailing_slash(base_url) + "api/v1/sct/consulta"
         self.clear_logs()
-        self.append_log(f"Consulta individual SCT: {json.dumps(self._redact(payload), ensure_ascii=False)}\n")
+        self.append_log("Consulta individual SCT", style="header")
+        self.append_log(f"Payload: {json.dumps(self._redact(payload), ensure_ascii=False)}", style="bullet")
         resp = safe_post(url, headers, payload)
-        self.append_log(f"Respuesta HTTP {resp.get('http_status')}: {json.dumps(resp.get('data'), ensure_ascii=False)}\n")
+        self.append_log(f"HTTP {resp.get('http_status')}: {json.dumps(resp.get('data'), ensure_ascii=False)}", style="section")
         self.set_preview(self.result_box, json.dumps(resp, indent=2, ensure_ascii=False))
 
     def cargar_excel(self) -> None:
@@ -1129,7 +1141,7 @@ class SctWindow(BaseWindow):
             return
 
         self.clear_logs()
-        self.append_log(f"Procesando {len(df_to_process)} filas SCT\n")
+        self.append_log(f"Procesando {len(df_to_process)} filas SCT", style="header")
         for _, row in df_to_process.iterrows():  # type: ignore[union-attr]
             include_deuda = parse_bool_cell(row.get("deuda"), default=self.opt_deuda.get()) if "deuda" in row else bool(self.opt_deuda.get())
             include_venc = (
@@ -1177,20 +1189,24 @@ class SctWindow(BaseWindow):
                 "proxy_request": bool(self.opt_proxy.get()),
             }
             payload.update(outputs)
+            self.append_log(f"Fila {payload['cuit_representado']}", style="section")
             self.append_log(
-                f"- Fila {payload['cuit_representado']}: bloques "
-                f"[deuda={include_deuda}, venc={include_venc}, ddjj={include_ddjj}] "
-                f"formatos {json.dumps(outputs, ensure_ascii=False)}\n"
+                f"Bloques activos -> deuda={include_deuda}, vencimientos={include_venc}, ddjj={include_ddjj}", style="bullet"
             )
+            self.append_log(f"Salidas solicitadas -> {json.dumps(outputs, ensure_ascii=False)}", style="bullet")
             resp = safe_post(url, headers, payload)
             data = resp.get("data", {})
-            self.append_log(f"  -> HTTP {resp.get('http_status')}: {json.dumps(data, ensure_ascii=False)}\n")
+            self.append_log(f"HTTP {resp.get('http_status')}: {json.dumps(data, ensure_ascii=False)}", style="bullet")
             downloads = 0
             download_errors: List[str] = []
             if isinstance(data, dict):
                 downloads, download_errors = self._process_downloads_per_block(
                     data, outputs, block_config, payload["cuit_representado"], payload["cuit_login"]
                 )
+            if downloads:
+                self.append_log(f"Descargas completadas: {downloads}", style="success")
+            for err in download_errors:
+                self.append_log(f"Descarga con error: {err}", style="error")
             rows.append(
                 {
                     "cuit_representado": payload["cuit_representado"],
