@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import io
+import base64
 import contextlib
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,6 +16,7 @@ from tkinter import ttk
 
 from dotenv import load_dotenv
 from bin.consulta import consulta_mc_csv
+from bin.consulta import crear_directorio_seguro, descargar_archivo_minio
 
 # Cargar variables de entorno para valores por defecto
 load_dotenv()
@@ -211,6 +213,12 @@ def ensure_example_excels() -> Dict[str, str]:
                     "deuda": "SI",
                     "vencimientos": "SI",
                     "presentacion_ddjj": "SI",
+                    "ubicacion_deuda": "./Descargas",
+                    "nombre_deuda": "deuda-demo",
+                    "ubicacion_vencimientos": "./Descargas",
+                    "nombre_vencimientos": "vencimientos-demo",
+                    "ubicacion_ddjj": "./Descargas",
+                    "nombre_ddjj": "ddjj-demo",
                 },
                 {
                     "procesar": "NO",
@@ -220,6 +228,12 @@ def ensure_example_excels() -> Dict[str, str]:
                     "deuda": "NO",
                     "vencimientos": "NO",
                     "presentacion_ddjj": "NO",
+                    "ubicacion_deuda": "./Descargas",
+                    "nombre_deuda": "deuda-no",
+                    "ubicacion_vencimientos": "./Descargas",
+                    "nombre_vencimientos": "vencimientos-no",
+                    "ubicacion_ddjj": "./Descargas",
+                    "nombre_ddjj": "ddjj-no",
                 },
             ]
         ),
@@ -732,42 +746,166 @@ class SctWindow(BaseWindow):
         else:
             os.system(f"xdg-open '{path}'")
 
-    def payload_common(self) -> Dict[str, Any]:
-        return {
-            "excel_b64": bool(self.opt_excel_b64.get()),
-            "csv_b64": bool(self.opt_csv_b64.get()),
-            "pdf_b64": bool(self.opt_pdf_b64.get()),
-            "excel_minio": bool(self.opt_excel_minio.get()),
-            "csv_minio": bool(self.opt_csv_minio.get()),
-            "pdf_minio": bool(self.opt_pdf_minio.get()),
-            "proxy_request": bool(self.opt_proxy.get()),
-            "deuda": bool(self.opt_deuda.get()),
-            "vencimientos": bool(self.opt_vencimientos.get()),
-            "presentacion_ddjj": bool(self.opt_presentacion.get()),
+    def _ensure_extension(self, name: str, ext: str) -> str:
+        clean = (name or "").strip()
+        if not clean:
+            clean = "reporte"
+        if not clean.lower().endswith(f".{ext}"):
+            clean = f"{clean}.{ext}"
+        return clean
+
+    def _prepare_dir(self, desired_path: str, base_name: str, cuit_representado: str, cuit_login: str) -> str:
+        return crear_directorio_seguro(
+            desired_path,
+            nombre_representado=cuit_representado or "Representado",
+            representado_cuit=cuit_representado or "",
+            nombre_archivo=base_name or "reporte",
+            cuit_representante=cuit_login or None,
+        )
+
+    def _save_b64_file(self, content_b64: str, dest_path: str) -> Tuple[bool, Optional[str]]:
+        try:
+            data = base64.b64decode(content_b64)
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path, "wb") as f:
+                f.write(data)
+            return True, None
+        except Exception as exc:
+            return False, str(exc)
+
+    def _download_variant(
+        self,
+        data: Dict[str, Any],
+        outputs: Dict[str, bool],
+        prefix: str,
+        fmt: str,
+        dest_dir: str,
+        base_name: str,
+    ) -> Tuple[bool, Optional[str]]:
+        ext_map = {"excel": "xlsx", "csv": "csv", "pdf": "pdf"}
+        ext = ext_map[fmt]
+        minio_flag = outputs.get(f"{prefix}_{fmt}_minio")
+        b64_flag = outputs.get(f"{prefix}_{fmt}_b64")
+        if not minio_flag and not b64_flag:
+            return False, None
+
+        minio_key = f"{prefix}_{fmt}_url_minio"
+        b64_key = f"{prefix}_{fmt}_b64"
+        filename = self._ensure_extension(base_name, ext)
+        dest_path = os.path.join(dest_dir, filename)
+
+        if minio_flag and data.get(minio_key):
+            res = descargar_archivo_minio(data.get(minio_key), dest_path)
+            return res.get("success", False), res.get("error")
+        if b64_flag and data.get(b64_key):
+            ok, err = self._save_b64_file(data.get(b64_key), dest_path)
+            return ok, err
+
+        return False, "No se recibió contenido para descargar."
+
+    def _process_downloads_per_block(
+        self,
+        data: Dict[str, Any],
+        outputs: Dict[str, bool],
+        block_config: Dict[str, Dict[str, str]],
+        cuit_repr: str,
+        cuit_login: str,
+    ) -> Tuple[int, List[str]]:
+        """
+        Descarga archivos de cada bloque (deudas, vencimientos, ddjj) según outputs.
+        Retorna cantidad descargada y lista de errores.
+        """
+        total_downloaded = 0
+        errors: List[str] = []
+        for prefix, cfg in block_config.items():
+            if not cfg.get("enabled"):
+                continue
+            dest_dir = self._prepare_dir(cfg.get("path", ""), cfg.get("name", ""), cuit_repr, cuit_login)
+            for fmt in ("excel", "csv", "pdf"):
+                success, err = self._download_variant(data, outputs, prefix, fmt, dest_dir, cfg.get("name", prefix))
+                if success:
+                    total_downloaded += 1
+                elif err:
+                    errors.append(f"{prefix}-{fmt}: {err}")
+        return total_downloaded, errors
+
+    def build_output_flags(self, include_deuda: bool, include_vencimientos: bool, include_ddjj: bool) -> Tuple[Dict[str, bool], bool]:
+        """
+        Mapea las selecciones de la UI a los flags reales del endpoint SCT.
+        Devuelve el payload parcial y si al menos una salida quedó habilitada.
+        """
+        outputs: Dict[str, bool] = {
+            "vencimientos_excel_b64": False,
+            "vencimientos_csv_b64": False,
+            "vencimientos_pdf_b64": False,
+            "vencimientos_excel_minio": False,
+            "vencimientos_csv_minio": False,
+            "vencimientos_pdf_minio": False,
+            "deudas_excel_b64": False,
+            "deudas_csv_b64": False,
+            "deudas_pdf_b64": False,
+            "deudas_excel_minio": False,
+            "deudas_csv_minio": False,
+            "deudas_pdf_minio": False,
+            "ddjj_pendientes_excel_b64": False,
+            "ddjj_pendientes_csv_b64": False,
+            "ddjj_pendientes_pdf_b64": False,
+            "ddjj_pendientes_excel_minio": False,
+            "ddjj_pendientes_csv_minio": False,
+            "ddjj_pendientes_pdf_minio": False,
         }
+
+        selected = False
+
+        def apply(prefix: str, enabled: bool) -> None:
+            nonlocal selected
+            if not enabled:
+                return
+            if self.opt_excel_b64.get():
+                outputs[f"{prefix}_excel_b64"] = True
+                selected = True
+            if self.opt_csv_b64.get():
+                outputs[f"{prefix}_csv_b64"] = True
+                selected = True
+            if self.opt_pdf_b64.get():
+                outputs[f"{prefix}_pdf_b64"] = True
+                selected = True
+            if self.opt_excel_minio.get():
+                outputs[f"{prefix}_excel_minio"] = True
+                selected = True
+            if self.opt_csv_minio.get():
+                outputs[f"{prefix}_csv_minio"] = True
+                selected = True
+            if self.opt_pdf_minio.get():
+                outputs[f"{prefix}_pdf_minio"] = True
+                selected = True
+
+        apply("deudas", include_deuda)
+        apply("vencimientos", include_vencimientos)
+        apply("ddjj_pendientes", include_ddjj)
+
+        return outputs, selected
 
     def consulta_individual(self) -> None:
         base_url, api_key, email = self.config_provider()
         headers = build_headers(api_key, email)
-        outputs_selected = any(
-            [
-                self.opt_excel_b64.get(),
-                self.opt_csv_b64.get(),
-                self.opt_pdf_b64.get(),
-                self.opt_excel_minio.get(),
-                self.opt_csv_minio.get(),
-                self.opt_pdf_minio.get(),
-            ]
-        )
-        if not outputs_selected:
-            messagebox.showwarning("Falta salida", "Selecciona al menos un formato de salida (Excel/CSV/PDF en base64 o MinIO).")
+        include_deuda = bool(self.opt_deuda.get())
+        include_vencimientos = bool(self.opt_vencimientos.get())
+        include_ddjj = bool(self.opt_presentacion.get())
+        outputs, has_outputs = self.build_output_flags(include_deuda, include_vencimientos, include_ddjj)
+        if not has_outputs:
+            messagebox.showwarning(
+                "Falta salida",
+                "Selecciona un formato de salida (Excel/CSV/PDF) y habilita al menos un bloque (Deuda/Vencimientos/DDJJ).",
+            )
             return
         payload = {
             "cuit_login": self.sct_login_var.get().strip(),
             "clave": self.sct_clave_var.get(),
             "cuit_representado": self.sct_repr_var.get().strip(),
+            "proxy_request": bool(self.opt_proxy.get()),
         }
-        payload.update(self.payload_common())
+        payload.update(outputs)
         url = ensure_trailing_slash(base_url) + "api/v1/sct/consulta"
         resp = safe_post(url, headers, payload)
         self.set_preview(self.result_box, json.dumps(resp, indent=2, ensure_ascii=False))
@@ -790,22 +928,20 @@ class SctWindow(BaseWindow):
         if self.sct_df is None or self.sct_df.empty:
             messagebox.showerror("Error", "Carga un Excel primero.")
             return
+        # Verificación global por si ninguna salida está elegida
+        _, has_outputs_default = self.build_output_flags(
+            bool(self.opt_deuda.get()), bool(self.opt_vencimientos.get()), bool(self.opt_presentacion.get())
+        )
+        if not has_outputs_default:
+            messagebox.showwarning(
+                "Falta salida",
+                "Selecciona un formato de salida (Excel/CSV/PDF) y habilita al menos un bloque (Deuda/Vencimientos/DDJJ).",
+            )
+            return
+
         base_url, api_key, email = self.config_provider()
         headers = build_headers(api_key, email)
         url = ensure_trailing_slash(base_url) + "api/v1/sct/consulta"
-        outputs_selected = any(
-            [
-                self.opt_excel_b64.get(),
-                self.opt_csv_b64.get(),
-                self.opt_pdf_b64.get(),
-                self.opt_excel_minio.get(),
-                self.opt_csv_minio.get(),
-                self.opt_pdf_minio.get(),
-            ]
-        )
-        if not outputs_selected:
-            messagebox.showwarning("Falta salida", "Selecciona al menos un formato de salida (Excel/CSV/PDF en base64 o MinIO).")
-            return
         rows: List[Dict[str, Any]] = []
         df_to_process = self.sct_df
         if "procesar" in df_to_process.columns:
@@ -815,25 +951,67 @@ class SctWindow(BaseWindow):
             return
 
         for _, row in df_to_process.iterrows():  # type: ignore[union-attr]
+            include_deuda = parse_bool_cell(row.get("deuda"), default=self.opt_deuda.get()) if "deuda" in row else bool(self.opt_deuda.get())
+            include_venc = (
+                parse_bool_cell(row.get("vencimientos"), default=self.opt_vencimientos.get()) if "vencimientos" in row else bool(self.opt_vencimientos.get())
+            )
+            include_ddjj = (
+                parse_bool_cell(row.get("presentacion_ddjj"), default=self.opt_presentacion.get())
+                if "presentacion_ddjj" in row
+                else bool(self.opt_presentacion.get())
+            )
+            outputs, has_outputs = self.build_output_flags(include_deuda, include_venc, include_ddjj)
+            if not has_outputs:
+                rows.append(
+                    {
+                        "cuit_representado": str(row.get("cuit_representado", "")).strip(),
+                        "http_status": None,
+                        "status": "sin_salida",
+                        "error_message": "Sin formato de salida seleccionado para esta fila",
+                    }
+                )
+                continue
+            # Configuración de nombres/rutas para archivos
+            block_config = {
+                "deudas": {
+                    "enabled": include_deuda,
+                    "path": str(row.get("ubicacion_deuda") or row.get("ubicacion_deudas") or ""),
+                    "name": str(row.get("nombre_deuda") or row.get("nombre_deudas") or "Deudas"),
+                },
+                "vencimientos": {
+                    "enabled": include_venc,
+                    "path": str(row.get("ubicacion_vencimientos") or ""),
+                    "name": str(row.get("nombre_vencimientos") or "Vencimientos"),
+                },
+                "ddjj_pendientes": {
+                    "enabled": include_ddjj,
+                    "path": str(row.get("ubicacion_ddjj") or row.get("ubicacion_presentacion_ddjj") or ""),
+                    "name": str(row.get("nombre_ddjj") or row.get("nombre_presentacion_ddjj") or "DDJJ"),
+                },
+            }
             payload = {
                 "cuit_login": str(row.get("cuit_login", "")).strip(),
                 "clave": str(row.get("clave", "")),
                 "cuit_representado": str(row.get("cuit_representado", "")).strip(),
+                "proxy_request": bool(self.opt_proxy.get()),
             }
-            common = self.payload_common()
-            # Permite override por fila si existen columnas en el Excel
-            for key in ["deuda", "vencimientos", "presentacion_ddjj"]:
-                if key in row:
-                    common[key] = parse_bool_cell(row.get(key), default=common[key])
-            payload.update(common)
+            payload.update(outputs)
             resp = safe_post(url, headers, payload)
             data = resp.get("data", {})
+            downloads = 0
+            download_errors: List[str] = []
+            if isinstance(data, dict):
+                downloads, download_errors = self._process_downloads_per_block(
+                    data, outputs, block_config, payload["cuit_representado"], payload["cuit_login"]
+                )
             rows.append(
                 {
                     "cuit_representado": payload["cuit_representado"],
                     "http_status": resp.get("http_status"),
                     "status": data.get("status") if isinstance(data, dict) else None,
                     "error_message": data.get("error_message") if isinstance(data, dict) else None,
+                    "descargas": downloads,
+                    "errores_descarga": "; ".join(download_errors) if download_errors else None,
                 }
             )
         out_df = pd.DataFrame(rows)
