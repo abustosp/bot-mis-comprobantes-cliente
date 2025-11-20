@@ -423,14 +423,18 @@ class GuiDescargaMC(BaseWindow):
         messagebox.showinfo("Requests restantes", json.dumps(resp.get("data"), indent=2, ensure_ascii=False))
 
     def confirmar(self) -> None:
-        if not self.selected_excel:
-            messagebox.showerror("Error", "Primero selecciona un Excel.")
+        excel_to_use = self.selected_excel or self.example_paths.get("mis_comprobantes.xlsx")
+        if not excel_to_use:
+            messagebox.showerror("Error", "Primero selecciona un Excel o usa el ejemplo de mis_comprobantes.xlsx.")
+            return
+        if not os.path.exists(excel_to_use):
+            messagebox.showerror("Error", f"No se encontró el archivo seleccionado: {excel_to_use}")
             return
         answer = messagebox.askyesno("Confirmar", "Esta accion enviara las consultas. Continuar?")
         if answer:
             try:
-                consulta_mc_csv()
-                messagebox.showinfo("OK", "Proceso iniciado. Revisa la consola para ver el avance.")
+                consulta_mc_csv(excel_to_use)
+                messagebox.showinfo("OK", f"Proceso iniciado con {excel_to_use}. Revisa la consola para ver el avance.")
             except Exception as exc:
                 messagebox.showerror("Error", f"No se pudo ejecutar consulta_mc_csv: {exc}")
 

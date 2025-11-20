@@ -16,7 +16,7 @@ cp .env.example .env
 
 ### GUI (Interfaz Gráfica)
 ```bash
-python consulta-mc-gui.py
+python mrbot.py
 ```
 
 ### Consulta Simple
@@ -55,7 +55,8 @@ resultados = descargar_archivos_minio_concurrente(archivos)
 ```python
 from bin.consulta import consulta_mc_csv
 
-consulta_mc_csv()  # Procesa Descarga-Mis-Comprobantes.csv
+# Procesa el Excel/CSV (puedes pasar ./ejemplos_api/mis_comprobantes.xlsx)
+consulta_mc_csv("./ejemplos_api/mis_comprobantes.xlsx")
 ```
 
 ## Endpoints API v1
@@ -117,7 +118,7 @@ si|01/01/2024|31/12/2024|20123456780|EMPRESA SA|30876543210|password|si|si|./Des
 - Encoding: Se intenta cp1252 primero, luego utf-8
 - Los archivos se descargan desde MinIO como ZIP y se extraen automáticamente
 - Usar "Ubicacion" sin tilde para mayor compatibilidad
-- Si la ruta especificada falla, se usa automáticamente: `Descargas/<Representado>/`
+- Si la ruta especificada falla, se usa automáticamente: `./descargas/mis_compobantes/<CUIT_representante>/<NombreArchivo>`
 
 ## Tests y Ejemplos
 

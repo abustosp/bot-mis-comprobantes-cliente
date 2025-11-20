@@ -40,13 +40,13 @@ mis-comprobantes-cliente/
 │   └── Recibidos.json
 ├── Ejecutable/                  # Versión compilada (release)
 │   ├── bin/
-│   ├── consulta-mc-gui          # Ejecutable Linux
+│   ├── mrbot                    # Ejecutable Linux
 │   ├── Descarga-Mis-Comprobantes.csv
 │   ├── Descarga-Mis-Comprobantes.xlsx
 │   ├── LICENSE
 │   └── README.md
 ├── cliente_api_mrbot.py         # Ejemplo de cliente con Streamlit
-├── consulta-mc-gui.py           # GUI con Tkinter
+├── mrbot.py                     # GUI con Tkinter
 ├── Descarga-Mis-Comprobantes.csv   # Plantilla CSV para consultas masivas
 ├── Descarga-Mis-Comprobantes.xlsx  # Plantilla Excel
 ├── .env                         # Variables de entorno (no versionado)
@@ -81,7 +81,7 @@ urllib3>=2.3.0
 
 1. Descarga la última versión desde [releases](https://github.com/abustosp/bot-mis-comprobantes-cliente/releases)
 2. Descomprime el archivo
-3. Ejecuta el archivo `consulta-mc-gui` (Linux) o `consulta-mc-gui.exe` (Windows)
+3. Ejecuta el archivo `mrbot` (Linux) o `mrbot.exe` (Windows)
 
 ### Opción 2: Desde código fuente
 
@@ -157,15 +157,16 @@ si|01/01/2024|31/12/2024|20123456780|EMPRESA EJEMPLO SA|30876543210|MiClave123|s
 - Los archivos ZIP temporales se eliminan después de la extracción
 - **Creación inteligente de directorios:**
   - Primero intenta crear el directorio especificado
-  - Si falla (permisos, ruta inválida), usa: `Descargas/<Nombre_Representado>/`
-  - Si todo falla, usa: `Descargas/`
+  - Si falla (permisos, ruta inválida), usa: `./descargas/mis_compobantes/<CUIT_representante>/<NombreArchivo>`
+  - Si todo falla, usa: `./Descargas/`
+- Puedes probar rápido con el Excel de ejemplo `./ejemplos_api/mis_comprobantes.xlsx` (la GUI lo usa si no seleccionas otro archivo)
 
 ## 🚀 Uso
 
 ### Interfaz Gráfica (GUI)
 
 ```bash
-python consulta-mc-gui.py
+python mrbot.py
 ```
 
 Desde la interfaz podrás:
@@ -207,8 +208,9 @@ resultados = descargar_archivos_minio_concurrente(archivos, max_workers=10)
 ```python
 from bin.consulta import consulta_mc_csv
 
-# Procesa todas las filas del CSV con Procesar='si'
-consulta_mc_csv()
+# Procesa todas las filas del CSV/Excel con Procesar='si'
+# Pasa un Excel personalizado (ej: ./ejemplos_api/mis_comprobantes.xlsx) o usa el default.
+consulta_mc_csv("./ejemplos_api/mis_comprobantes.xlsx")
 ```
 
 ## 📚 API Reference

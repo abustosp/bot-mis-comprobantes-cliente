@@ -19,6 +19,47 @@ api_key = os.getenv("API_KEY")
 
 # Configuración para descargas concurrentes
 MAX_WORKERS = 10
+FALLBACK_BASE_DIR = os.path.join("descargas", "mis_compobantes")
+
+
+def _normalize_key(key: str) -> str:
+    """
+    Normaliza nombres de columnas/keys para admitir variaciones (tildes, espacios, mayúsculas).
+    """
+    if key is None:
+        return ""
+    translation_table = str.maketrans("áéíóúÁÉÍÓÚñÑ", "aeiouAEIOUnN")
+    return (
+        str(key)
+        .strip()
+        .translate(translation_table)
+        .lower()
+        .replace(" ", "_")
+    )
+
+
+def _to_bool(value: Any, default: bool = False) -> bool:
+    """
+    Convierte varios tipos de valores a booleanos aceptando si/yes/1/true.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"true", "1", "si", "sí", "yes", "y"}:
+        return True
+    if text in {"false", "0", "no", "n"}:
+        return False
+    return default
+
+
+def _sanitize_path_fragment(text: str, fallback: str = "descarga") -> str:
+    clean = "".join(c for c in str(text) if c.isalnum() or c in (" ", "-", "_")).strip()
+    clean = clean.replace(" ", "_")
+    return clean or fallback
 
 
 def consulta_mc(desde, 
@@ -276,7 +317,11 @@ def extraer_csv_de_zip(zip_path, destino_csv):
         return False
 
 
-def crear_directorio_seguro(ruta, nombre_representado, representado_cuit: Optional[str] = None, nombre_archivo: Optional[str] = None):
+def crear_directorio_seguro(ruta,
+                            nombre_representado: str,
+                            representado_cuit: Optional[str] = None,
+                            nombre_archivo: Optional[str] = None,
+                            cuit_representante: Optional[str] = None):
     """
     Intenta crear un directorio. Si falla, retorna una ruta alternativa.
     
@@ -290,29 +335,25 @@ def crear_directorio_seguro(ruta, nombre_representado, representado_cuit: Option
         str: Ruta del directorio (original o fallback)
     """
     try:
-        # Intentar crear el directorio original
-        os.makedirs(ruta, exist_ok=True)
-        # Verificar que se puede escribir
-        test_file = os.path.join(ruta, '.test_write')
-        try:
-            with open(test_file, 'w') as f:
-                f.write('test')
-            os.remove(test_file)
-            print(f"✓ Directorio verificado: {ruta}")
-            return ruta
-        except:
-            raise PermissionError(f"No se puede escribir en {ruta}")
-    except Exception as e:
-        # Si falla, usar directorio fallback
-        # Limpiar nombre del representado para usarlo como nombre de carpeta
-        nombre_limpio = "".join(c for c in nombre_representado if c.isalnum() or c in (' ', '-', '_')).strip()
-        nombre_limpio = nombre_limpio.replace(' ', '_')
-        cuit_limpio = str(representado_cuit).strip() if representado_cuit else ""
-        nombre_dir_final = nombre_archivo or nombre_limpio or "descarga"
-        if cuit_limpio:
-            fallback_dir = os.path.join(cuit_limpio, nombre_dir_final)
+        ruta_deseada = ruta.strip() if isinstance(ruta, str) else ""
+        if ruta_deseada:
+            os.makedirs(ruta_deseada, exist_ok=True)
+            # Verificar que se puede escribir
+            test_file = os.path.join(ruta_deseada, '.test_write')
+            try:
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
+                print(f"✓ Directorio verificado: {ruta_deseada}")
+                return ruta_deseada
+            except Exception:
+                raise PermissionError(f"No se puede escribir en {ruta_deseada}")
         else:
-            fallback_dir = os.path.join('Descargas', nombre_dir_final)
+            raise ValueError("Ruta no especificada")
+    except Exception as e:
+        cuit_limpio = _sanitize_path_fragment(cuit_representante or representado_cuit, "sin_cuit")
+        nombre_limpio = _sanitize_path_fragment(nombre_archivo or nombre_representado, "descarga")
+        fallback_dir = os.path.join(FALLBACK_BASE_DIR, cuit_limpio, nombre_limpio)
         try:
             os.makedirs(fallback_dir, exist_ok=True)
             print(f"⚠ No se pudo usar {ruta}: {e}")
@@ -326,20 +367,26 @@ def crear_directorio_seguro(ruta, nombre_representado, representado_cuit: Option
             return 'Descargas'
 
 
-def consulta_mc_csv():
+def consulta_mc_csv(excel_path: Optional[str] = None):
     """
     Procesa el archivo Excel (o CSV legacy) de consultas masivas de Mis Comprobantes.
     
     Lee el archivo 'Descarga-Mis-Comprobantes.xlsx' (o el CSV legado si existiera) y procesa cada fila que tenga
-    'Procesar' = 'si'. Para cada consulta:
+    'Procesar' = 'si'. Si no se encuentra, usa automáticamente `./ejemplos_api/mis_comprobantes.xlsx`
+    como plantilla de prueba. Para cada consulta:
     - Realiza la consulta a la API
     - Descarga archivos ZIP desde MinIO
     - Extrae los CSV de los ZIPs descargados
     
+    Args:
+        excel_path: Ruta opcional al Excel a procesar (por ejemplo, './ejemplos_api/mis_comprobantes.xlsx').
+    
     El archivo Excel se lee con pandas. Si no existe, se intenta usar el CSV con cp1252 y luego utf-8.
     """
     datos = []
-    excel_path = 'Descarga-Mis-Comprobantes.xlsx'
+    origen = None
+    excel_default = 'Descarga-Mis-Comprobantes.xlsx'
+    excel_example = os.path.join('ejemplos_api', 'mis_comprobantes.xlsx')
     csv_path = 'Descarga-Mis-Comprobantes.csv'
     def _to_str(value: Any) -> str:
         return '' if value is None else str(value).strip()
@@ -354,58 +401,87 @@ def consulta_mc_csv():
             return parsed.strftime("%d/%m/%Y")
         return text
 
-    # Intentar leer Excel
-    try:
-        df = pd.read_excel(excel_path, dtype=str).fillna('')
-        datos = df.to_dict(orient='records')
-        print("✓ Excel leído correctamente")
-    except FileNotFoundError:
-        print(f"⚠ No se encontró el archivo '{excel_path}', intentando leer CSV legado...")
-    except Exception as e:
-        print(f"✗ Error al leer Excel: {e}")
-        return
+    def _normalize_row_keys(row: Dict[str, Any]) -> Dict[str, Any]:
+        return {_normalize_key(k): v for k, v in row.items()}
+
+    excel_candidates = [excel_path] if excel_path else []
+    excel_candidates.extend([excel_default, excel_example])
+
+    # Intentar leer Excel (ruta proporcionada -> default -> ejemplo)
+    for candidate in excel_candidates:
+        if not candidate:
+            continue
+        if not os.path.exists(candidate):
+            continue
+        try:
+            df = pd.read_excel(candidate, dtype=str).fillna('')
+            df.columns = [_normalize_key(c) for c in df.columns]
+            datos = df.to_dict(orient='records')
+            origen = candidate
+            print(f"✓ Excel leído correctamente: {candidate}")
+            break
+        except Exception as e:
+            print(f"✗ Error al leer Excel '{candidate}': {e}")
 
     # Fallback al CSV legacy
     if not datos:
         try:
             with open(csv_path, 'r', encoding='cp1252') as f:
-                datos = list(csv.DictReader(f, delimiter='|'))
+                datos = [_normalize_row_keys(row) for row in csv.DictReader(f, delimiter='|')]
             print("✓ CSV leído con encoding cp1252 (modo compatibilidad)")
         except UnicodeDecodeError:
             try:
                 with open(csv_path, 'r', encoding='utf-8') as f:
-                    datos = list(csv.DictReader(f, delimiter='|'))
+                    datos = [_normalize_row_keys(row) for row in csv.DictReader(f, delimiter='|')]
                 print("✓ CSV leído con encoding utf-8 (modo compatibilidad)")
             except Exception as e:
                 print(f"✗ Error al leer CSV: {e}")
                 return
         except FileNotFoundError:
-            print(f"✗ Error: No se encontró el archivo '{excel_path}' ni el CSV de respaldo '{csv_path}'")
+            print(f"✗ Error: No se encontró el archivo '{excel_default}' ni el CSV de respaldo '{csv_path}'. "
+                  f"También se intentó '{excel_example}'.")
             return
         except Exception as e:
             print(f"✗ Error al leer CSV: {e}")
             return
 
-    if not datos:
+    datos_normalizados = [{k: _to_str(v) for k, v in _normalize_row_keys(dato).items()} for dato in datos]
+
+    if not datos_normalizados:
         print("⚠ El archivo de configuración no contiene filas para procesar")
         return
     
     errores = []
     errores2 = []
     
-    for dato in datos:
-        if _to_str(dato.get('Procesar', '')).lower() != 'si':
+    for dato in datos_normalizados:
+        if not _to_bool(dato.get('procesar', ''), default=False):
             continue
             
-        desde = _format_date(dato.get('Desde', ''))
-        hasta = _format_date(dato.get('Hasta', ''))
-        cuit_inicio_sesion = _to_str(dato.get('CUIT Inicio', ''))
-        representado_nombre = _to_str(dato.get('Representado', ''))
-        representado_cuit = _to_str(dato.get('CUIT Representado', ''))
-        contrasena = _to_str(dato.get('Clave', ''))
+        desde = _format_date(dato.get('desde', ''))
+        hasta = _format_date(dato.get('hasta', ''))
+        cuit_inicio_sesion = _to_str(
+            dato.get('cuit_inicio_sesion') or
+            dato.get('cuit_inicio') or
+            dato.get('cuit_login') or
+            dato.get('cuit_representante', '')
+        )
+        representado_nombre = _to_str(
+            dato.get('representado_nombre') or
+            dato.get('nombre_representado') or
+            dato.get('representado') or
+            dato.get('nombre', '')
+        ) or "Representado"
+        representado_cuit = _to_str(
+            dato.get('representado_cuit') or
+            dato.get('cuit_representado') or
+            dato.get('representadocuit') or
+            dato.get('cuit', '')
+        )
+        contrasena = _to_str(dato.get('contrasena') or dato.get('clave') or dato.get('clave_fiscal', ''))
         
-        descarga_emitidos = _to_str(dato.get('Descarga Emitidos', '')).lower() == 'si'
-        descarga_recibidos = _to_str(dato.get('Descarga Recibidos', '')).lower() == 'si'
+        descarga_emitidos = _to_bool(dato.get('descarga_emitidos', ''), default=False)
+        descarga_recibidos = _to_bool(dato.get('descarga_recibidos', ''), default=False)
         
         print(f"\n{'='*60}")
         print(f"Procesando: {representado_nombre} ({representado_cuit})")
@@ -463,16 +539,18 @@ def consulta_mc_csv():
             # Procesar emitidos
             if descarga_emitidos:
                 # Usar "Ubicacion" sin tilde para mayor compatibilidad
-                ubicacion_deseada = _to_str(dato.get('Ubicacion Emitidos') or dato.get('Ubicación Emitidos', ''))
-                nombre_emitidos = _to_str(dato.get('Nombre Emitidos', ''))
+                ubicacion_deseada = _to_str(dato.get('ubicacion_emitidos', ''))
+                nombre_emitidos = _to_str(dato.get('nombre_emitidos', '')) or "Emitidos"
                 
                 # Intentar crear directorio, con fallback si falla
                 ubicacion_emitidos = crear_directorio_seguro(
                     ubicacion_deseada,
                     representado_nombre,
                     representado_cuit=representado_cuit,
-                    nombre_archivo=nombre_emitidos
+                    nombre_archivo=nombre_emitidos,
+                    cuit_representante=cuit_inicio_sesion
                 )
+                print(f"   Carpeta emitidos: {ubicacion_emitidos}")
                 
                 # Debug: Verificar si existe el campo de MinIO
                 print(f"\n🔍 Emitidos - Verificando campo MinIO...")
@@ -482,8 +560,8 @@ def consulta_mc_csv():
                 
                 # Agregar URL de MinIO a la lista de descargas
                 if 'mis_comprobantes_emitidos_url_minio' in response and response['mis_comprobantes_emitidos_url_minio']:
-                    zip_path = f'{ubicacion_emitidos}/{nombre_emitidos}_temp.zip'
-                    csv_path = f'{ubicacion_emitidos}/{nombre_emitidos}.csv'
+                    zip_path = os.path.join(ubicacion_emitidos, f"{nombre_emitidos}_temp.zip")
+                    csv_path = os.path.join(ubicacion_emitidos, f"{nombre_emitidos}.csv")
                     
                     archivos_a_descargar.append({
                         'url': response['mis_comprobantes_emitidos_url_minio'],
@@ -502,16 +580,18 @@ def consulta_mc_csv():
             # Procesar recibidos
             if descarga_recibidos:
                 # Usar "Ubicacion" sin tilde para mayor compatibilidad
-                ubicacion_deseada = _to_str(dato.get('Ubicacion Recibidos') or dato.get('Ubicación Recibidos', ''))
-                nombre_recibidos = _to_str(dato.get('Nombre Recibidos', ''))
+                ubicacion_deseada = _to_str(dato.get('ubicacion_recibidos', ''))
+                nombre_recibidos = _to_str(dato.get('nombre_recibidos', '')) or "Recibidos"
                 
                 # Intentar crear directorio, con fallback si falla
                 ubicacion_recibidos = crear_directorio_seguro(
                     ubicacion_deseada,
                     representado_nombre,
                     representado_cuit=representado_cuit,
-                    nombre_archivo=nombre_recibidos
+                    nombre_archivo=nombre_recibidos,
+                    cuit_representante=cuit_inicio_sesion
                 )
+                print(f"   Carpeta recibidos: {ubicacion_recibidos}")
                 
                 # Debug: Verificar si existe el campo de MinIO
                 print(f"\n🔍 Recibidos - Verificando campo MinIO...")
@@ -521,8 +601,8 @@ def consulta_mc_csv():
                 
                 # Agregar URL de MinIO a la lista de descargas
                 if 'mis_comprobantes_recibidos_url_minio' in response and response['mis_comprobantes_recibidos_url_minio']:
-                    zip_path = f'{ubicacion_recibidos}/{nombre_recibidos}_temp.zip'
-                    csv_path = f'{ubicacion_recibidos}/{nombre_recibidos}.csv'
+                    zip_path = os.path.join(ubicacion_recibidos, f"{nombre_recibidos}_temp.zip")
+                    csv_path = os.path.join(ubicacion_recibidos, f"{nombre_recibidos}.csv")
                     
                     archivos_a_descargar.append({
                         'url': response['mis_comprobantes_recibidos_url_minio'],
@@ -592,7 +672,7 @@ def consulta_mc_csv():
         from tkinter import messagebox
         
         # Preparar mensaje de resumen
-        total_procesados = len([d for d in datos if d['Procesar'].lower() == 'si'])
+        total_procesados = len([d for d in datos_normalizados if _to_bool(d.get('procesar', ''), default=False)])
         exitosos = total_procesados - len(errores) - len(errores2)
         
         mensaje = f"Procesamiento completado\n\n"
