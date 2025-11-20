@@ -848,7 +848,19 @@ class SctWindow(BaseWindow):
         self.log_text.delete('1.0', tk.END)
         self.log_text.configure(state='disabled')
 
-    def append_log(self, text: str) -> None:
+    def append_log(self, text: str, prefix: str = "") -> None:
+        if not text:
+            return
+        stamp = datetime.now().strftime("%H:%M:%S")
+        line = f"[{stamp}] {prefix}{text}" if prefix else f"[{stamp}] {text}"
+        self.log_text.configure(state="normal")
+        self.log_text.insert(tk.END, line)
+        if not line.endswith("\n"):
+            self.log_text.insert(tk.END, "\n")
+        self.log_text.see(tk.END)
+        self.log_text.configure(state="disabled")
+        self.log_text.update_idletasks()
+
         if not text:
             return
         self.log_text.configure(state="normal")
