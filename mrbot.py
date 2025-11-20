@@ -588,6 +588,54 @@ class RcelWindow(BaseWindow):
         self.result_box = self.add_preview(container, height=12)
         self.set_preview(self.preview, "Excel no cargado o sin previsualizar. Usa 'Previsualizar Excel'.")
 
+        log_frame = ttk.LabelFrame(container, text="Logs de ejecución")
+        log_frame.pack(fill="both", expand=True, pady=(6, 0))
+        self.log_text = tk.Text(
+            log_frame,
+            height=10,
+            wrap="word",
+            background="#1b1b1b",
+            foreground="#dcdcdc",
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.configure(state="disabled")
+
+        log_frame = ttk.LabelFrame(container, text="Logs de ejecución")
+        log_frame.pack(fill="both", expand=True, pady=(6, 0))
+        self.log_text = tk.Text(
+            log_frame,
+            height=10,
+            wrap="word",
+            background="#1b1b1b",
+            foreground="#dcdcdc",
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.configure(state="disabled")
+
+        log_frame = ttk.LabelFrame(container, text="Logs de ejecución")
+        log_frame.pack(fill="both", expand=True, pady=(6, 0))
+        self.log_text = tk.Text(
+            log_frame,
+            height=10,
+            wrap="word",
+            background="#1b1b1b",
+            foreground="#dcdcdc",
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.configure(state="disabled")
+
+        log_frame = ttk.LabelFrame(container, text="Logs de ejecución")
+        log_frame.pack(fill="both", expand=True, pady=(6, 0))
+        self.log_text = tk.Text(
+            log_frame,
+            height=10,
+            wrap="word",
+            background="#1b1b1b",
+            foreground="#dcdcdc",
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.configure(state="disabled")
+
     def abrir_ejemplo(self) -> None:
         path = self.example_paths.get("rcel.xlsx")
         if not path or not os.path.exists(path):
@@ -613,6 +661,27 @@ class RcelWindow(BaseWindow):
             self.set_preview(self.preview, "Excel cargado. Usa 'Previsualizar Excel'.")
         except Exception as exc:
             messagebox.showerror("Error", f"No se pudo leer el Excel: {exc}")
+            self.rcel_df = None
+
+    def clear_logs(self) -> None:
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", tk.END)
+        self.log_text.configure(state="disabled")
+
+    def append_log(self, text: str) -> None:
+        if not text:
+            return
+        self.log_text.configure(state="normal")
+        self.log_text.insert(tk.END, text)
+        self.log_text.see(tk.END)
+        self.log_text.configure(state="disabled")
+        self.log_text.update_idletasks()
+
+    def _redact(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        safe = dict(payload)
+        if "clave" in safe:
+            safe["clave"] = "***"
+        return safe
 
     def consulta_individual(self) -> None:
         base_url, api_key, email = self.config_provider()
@@ -628,7 +697,10 @@ class RcelWindow(BaseWindow):
             "minio_upload": bool(self.minio_var.get()),
         }
         url = ensure_trailing_slash(base_url) + "api/v1/rcel/consulta"
+        self.clear_logs()
+        self.append_log(f"Consulta individual RCEL: {json.dumps(self._redact(payload), ensure_ascii=False)}\n")
         resp = safe_post(url, headers, payload)
+        self.append_log(f"Respuesta HTTP {resp.get('http_status')}: {json.dumps(resp.get('data'), ensure_ascii=False)}\n")
         self.set_preview(self.result_box, json.dumps(resp, indent=2, ensure_ascii=False))
 
     def procesar_excel(self) -> None:
@@ -646,6 +718,8 @@ class RcelWindow(BaseWindow):
             messagebox.showwarning("Sin filas a procesar", "No hay filas marcadas con procesar=SI.")
             return
 
+        self.clear_logs()
+        self.append_log(f"Procesando {len(df_to_process)} filas RCEL\n")
         for _, row in df_to_process.iterrows():
             desde = str(row.get("desde", "")).strip() or self.desde_var.get().strip()
             hasta = str(row.get("hasta", "")).strip() or self.hasta_var.get().strip()
@@ -659,8 +733,10 @@ class RcelWindow(BaseWindow):
                 "b64_pdf": bool(self.b64_var.get()),
                 "minio_upload": bool(self.minio_var.get()),
             }
+            self.append_log(f"- Fila {payload['representado_cuit']}: payload {json.dumps(self._redact(payload), ensure_ascii=False)}\n")
             resp = safe_post(url, headers, payload)
             data = resp.get("data", {})
+            self.append_log(f"  -> HTTP {resp.get('http_status')}: {json.dumps(data, ensure_ascii=False)}\n")
             rows.append(
                 {
                     "representado_cuit": payload["representado_cuit"],
@@ -739,6 +815,18 @@ class SctWindow(BaseWindow):
         self.preview = self.add_preview(container, height=8, show=False)
         self.result_box = self.add_preview(container, height=12)
         self.set_preview(self.preview, "Excel no cargado o sin previsualizar. Usa 'Previsualizar Excel'.")
+        log_frame = ttk.LabelFrame(container, text="Logs de ejecución")
+        log_frame.pack(fill="both", expand=True, pady=(6, 0))
+        self.log_text = tk.Text(
+            log_frame,
+            height=12,
+            wrap="word",
+            background="#1b1b1b",
+            foreground="#dcdcdc",
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.configure(state="disabled")
+
 
     def abrir_ejemplo(self) -> None:
         path = self.example_paths.get("sct.xlsx")
@@ -751,6 +839,29 @@ class SctWindow(BaseWindow):
             os.system(f"open '{path}'")
         else:
             os.system(f"xdg-open '{path}'")
+
+    def clear_logs(self) -> None:
+        # Salvaguarda en caso de que log_text no se haya creado por algun error
+        if not hasattr(self, 'log_text') or self.log_text is None:
+            return
+        self.log_text.configure(state='normal')
+        self.log_text.delete('1.0', tk.END)
+        self.log_text.configure(state='disabled')
+
+    def append_log(self, text: str) -> None:
+        if not text:
+            return
+        self.log_text.configure(state="normal")
+        self.log_text.insert(tk.END, text)
+        self.log_text.see(tk.END)
+        self.log_text.configure(state="disabled")
+        self.log_text.update_idletasks()
+
+    def _redact(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        safe = dict(payload)
+        if "clave" in safe:
+            safe["clave"] = "***"
+        return safe
 
     def _ensure_extension(self, name: str, ext: str) -> str:
         clean = (name or "").strip()
@@ -969,7 +1080,10 @@ class SctWindow(BaseWindow):
         }
         payload.update(outputs)
         url = ensure_trailing_slash(base_url) + "api/v1/sct/consulta"
+        self.clear_logs()
+        self.append_log(f"Consulta individual SCT: {json.dumps(self._redact(payload), ensure_ascii=False)}\n")
         resp = safe_post(url, headers, payload)
+        self.append_log(f"Respuesta HTTP {resp.get('http_status')}: {json.dumps(resp.get('data'), ensure_ascii=False)}\n")
         self.set_preview(self.result_box, json.dumps(resp, indent=2, ensure_ascii=False))
 
     def cargar_excel(self) -> None:
@@ -1005,6 +1119,8 @@ class SctWindow(BaseWindow):
             messagebox.showwarning("Sin filas a procesar", "No hay filas marcadas con procesar=SI.")
             return
 
+        self.clear_logs()
+        self.append_log(f"Procesando {len(df_to_process)} filas SCT\n")
         for _, row in df_to_process.iterrows():  # type: ignore[union-attr]
             include_deuda = parse_bool_cell(row.get("deuda"), default=self.opt_deuda.get()) if "deuda" in row else bool(self.opt_deuda.get())
             include_venc = (
@@ -1052,8 +1168,14 @@ class SctWindow(BaseWindow):
                 "proxy_request": bool(self.opt_proxy.get()),
             }
             payload.update(outputs)
+            self.append_log(
+                f"- Fila {payload['cuit_representado']}: bloques "
+                f"[deuda={include_deuda}, venc={include_venc}, ddjj={include_ddjj}] "
+                f"formatos {json.dumps(outputs, ensure_ascii=False)}\n"
+            )
             resp = safe_post(url, headers, payload)
             data = resp.get("data", {})
+            self.append_log(f"  -> HTTP {resp.get('http_status')}: {json.dumps(data, ensure_ascii=False)}\n")
             downloads = 0
             download_errors: List[str] = []
             if isinstance(data, dict):
@@ -1117,6 +1239,19 @@ class CcmaWindow(BaseWindow):
         self.preview = self.add_preview(container, height=8, show=False)
         self.result_box = self.add_preview(container, height=12)
         self.set_preview(self.preview, "Excel no cargado o sin previsualizar. Usa 'Previsualizar Excel'.")
+
+        # Inicializar area de logs para SCT (similar a Mis Comprobantes)
+        log_frame = ttk.LabelFrame(container, text="Logs de ejecución")
+        log_frame.pack(fill="both", expand=True, pady=(6, 0))
+        self.log_text = tk.Text(
+            log_frame,
+            height=12,
+            wrap="word",
+            background="#1b1b1b",
+            foreground="#dcdcdc",
+        )
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.configure(state="disabled")
 
     def abrir_ejemplo(self) -> None:
         path = self.example_paths.get("ccma.xlsx")
