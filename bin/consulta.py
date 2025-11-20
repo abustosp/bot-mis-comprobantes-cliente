@@ -7,6 +7,8 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 from typing import Optional, Dict, Any, List
+from datetime import datetime, date
+import pandas as pd
 
 
 load_dotenv(".env", override=True)
@@ -85,7 +87,16 @@ def consulta_mc(desde,
     
     response = requests.post(url, headers=headers, json=payload)
     
-    return response.json()
+    try:
+        return response.json()
+    except ValueError:
+        # Respuesta no es JSON; devolver detalle para registrar el error
+        return {
+            'success': False,
+            'error': f'Respuesta no JSON (HTTP {response.status_code})',
+            'http_status': response.status_code,
+            'content': response.text[:500]
+        }
 
 
 def consulta_requests_restantes(mail: str) -> Dict[str, Any]:
@@ -106,7 +117,15 @@ def consulta_requests_restantes(mail: str) -> Dict[str, Any]:
     
     response = requests.get(url, headers=headers)
     
-    return response.json()
+    try:
+        return response.json()
+    except ValueError:
+        return {
+            'success': False,
+            'error': f'Respuesta no JSON (HTTP {response.status_code})',
+            'http_status': response.status_code,
+            'content': response.text[:500]
+        }
 
 
 def descargar_archivo_minio(url: str, destino: str) -> Dict[str, Any]:
@@ -303,52 +322,84 @@ def crear_directorio_seguro(ruta, nombre_representado):
 
 def consulta_mc_csv():
     """
-    Procesa el archivo CSV de consultas masivas de Mis Comprobantes.
+    Procesa el archivo Excel (o CSV legacy) de consultas masivas de Mis Comprobantes.
     
-    Lee el archivo 'Descarga-Mis-Comprobantes.csv' y procesa cada fila que tenga
+    Lee el archivo 'Descarga-Mis-Comprobantes.xlsx' (o el CSV legado si existiera) y procesa cada fila que tenga
     'Procesar' = 'si'. Para cada consulta:
     - Realiza la consulta a la API
     - Descarga archivos ZIP desde MinIO
     - Extrae los CSV de los ZIPs descargados
     
-    El archivo CSV se intenta leer primero con cp1252, luego con utf-8.
+    El archivo Excel se lee con pandas. Si no existe, se intenta usar el CSV con cp1252 y luego utf-8.
     """
-    # Intentar leer el CSV con diferentes encodings
+    datos = []
+    excel_path = 'Descarga-Mis-Comprobantes.xlsx'
+    csv_path = 'Descarga-Mis-Comprobantes.csv'
+    def _to_str(value: Any) -> str:
+        return '' if value is None else str(value).strip()
+    def _format_date(value: Any) -> str:
+        if isinstance(value, (pd.Timestamp, datetime, date)):
+            return value.strftime("%d/%m/%Y")
+        text = _to_str(value)
+        if not text:
+            return text
+        parsed = pd.to_datetime(text, dayfirst=True, errors='coerce')
+        if pd.notna(parsed):
+            return parsed.strftime("%d/%m/%Y")
+        return text
+
+    # Intentar leer Excel
     try:
-        with open('Descarga-Mis-Comprobantes.csv', 'r', encoding='cp1252') as f:
-            datos = list(csv.DictReader(f, delimiter='|'))
-        print("✓ CSV leído con encoding cp1252")
-    except UnicodeDecodeError:
+        df = pd.read_excel(excel_path, dtype=str).fillna('')
+        datos = df.to_dict(orient='records')
+        print("✓ Excel leído correctamente")
+    except FileNotFoundError:
+        print(f"⚠ No se encontró el archivo '{excel_path}', intentando leer CSV legado...")
+    except Exception as e:
+        print(f"✗ Error al leer Excel: {e}")
+        return
+
+    # Fallback al CSV legacy
+    if not datos:
         try:
-            with open('Descarga-Mis-Comprobantes.csv', 'r', encoding='utf-8') as f:
+            with open(csv_path, 'r', encoding='cp1252') as f:
                 datos = list(csv.DictReader(f, delimiter='|'))
-            print("✓ CSV leído con encoding utf-8")
+            print("✓ CSV leído con encoding cp1252 (modo compatibilidad)")
+        except UnicodeDecodeError:
+            try:
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    datos = list(csv.DictReader(f, delimiter='|'))
+                print("✓ CSV leído con encoding utf-8 (modo compatibilidad)")
+            except Exception as e:
+                print(f"✗ Error al leer CSV: {e}")
+                return
+        except FileNotFoundError:
+            print(f"✗ Error: No se encontró el archivo '{excel_path}' ni el CSV de respaldo '{csv_path}'")
+            return
         except Exception as e:
             print(f"✗ Error al leer CSV: {e}")
             return
-    except FileNotFoundError:
-        print("✗ Error: No se encontró el archivo 'Descarga-Mis-Comprobantes.csv'")
-        return
-    except Exception as e:
-        print(f"✗ Error al leer CSV: {e}")
+
+    if not datos:
+        print("⚠ El archivo de configuración no contiene filas para procesar")
         return
     
     errores = []
     errores2 = []
     
     for dato in datos:
-        if dato['Procesar'].lower() != 'si':
+        if _to_str(dato.get('Procesar', '')).lower() != 'si':
             continue
             
-        desde = dato['Desde']
-        hasta = dato['Hasta']
-        cuit_inicio_sesion = dato['CUIT Inicio']
-        representado_nombre = dato['Representado']
-        representado_cuit = dato['CUIT Representado']
-        contrasena = dato['Clave']
+        desde = _format_date(dato.get('Desde', ''))
+        hasta = _format_date(dato.get('Hasta', ''))
+        cuit_inicio_sesion = _to_str(dato.get('CUIT Inicio', ''))
+        representado_nombre = _to_str(dato.get('Representado', ''))
+        representado_cuit = _to_str(dato.get('CUIT Representado', ''))
+        contrasena = _to_str(dato.get('Clave', ''))
         
-        descarga_emitidos = dato['Descarga Emitidos'].lower() == 'si'
-        descarga_recibidos = dato['Descarga Recibidos'].lower() == 'si'
+        descarga_emitidos = _to_str(dato.get('Descarga Emitidos', '')).lower() == 'si'
+        descarga_recibidos = _to_str(dato.get('Descarga Recibidos', '')).lower() == 'si'
         
         print(f"\n{'='*60}")
         print(f"Procesando: {representado_nombre} ({representado_cuit})")
@@ -406,8 +457,8 @@ def consulta_mc_csv():
             # Procesar emitidos
             if descarga_emitidos:
                 # Usar "Ubicacion" sin tilde para mayor compatibilidad
-                ubicacion_deseada = dato.get('Ubicacion Emitidos') or dato.get('Ubicación Emitidos', '')
-                nombre_emitidos = dato['Nombre Emitidos']
+                ubicacion_deseada = _to_str(dato.get('Ubicacion Emitidos') or dato.get('Ubicación Emitidos', ''))
+                nombre_emitidos = _to_str(dato.get('Nombre Emitidos', ''))
                 
                 # Intentar crear directorio, con fallback si falla
                 ubicacion_emitidos = crear_directorio_seguro(ubicacion_deseada, representado_nombre)
@@ -440,8 +491,8 @@ def consulta_mc_csv():
             # Procesar recibidos
             if descarga_recibidos:
                 # Usar "Ubicacion" sin tilde para mayor compatibilidad
-                ubicacion_deseada = dato.get('Ubicacion Recibidos') or dato.get('Ubicación Recibidos', '')
-                nombre_recibidos = dato['Nombre Recibidos']
+                ubicacion_deseada = _to_str(dato.get('Ubicacion Recibidos') or dato.get('Ubicación Recibidos', ''))
+                nombre_recibidos = _to_str(dato.get('Nombre Recibidos', ''))
                 
                 # Intentar crear directorio, con fallback si falla
                 ubicacion_recibidos = crear_directorio_seguro(ubicacion_deseada, representado_nombre)

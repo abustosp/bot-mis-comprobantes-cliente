@@ -3,6 +3,8 @@ import tkinter as tk
 import tkinter.ttk as ttk
 from bin.consulta import consulta_mc_csv, consulta_requests_restantes
 import os
+import sys
+import subprocess
 import webbrowser
 from dotenv import load_dotenv
 from tkinter import messagebox
@@ -71,7 +73,7 @@ class GuiDescargaMC:
         self.Requests.pack(expand=True, pady=4, side="top")
 
         self.Excel = ttk.Button(self.Toplevel_1)
-        self.Excel.configure(text='CSV de Descarga', command=self.open_csv_file)
+        self.Excel.configure(text='Excel de Descarga', command=self.open_excel_file)
         self.Excel.pack(expand=True, padx=0, pady=4, side="top")
 
         self.Enviar = ttk.Button(self.Toplevel_1)
@@ -88,9 +90,20 @@ class GuiDescargaMC:
     def open_env_file(self):
         self.open_file_in_popup(".env")
 
-
-    def open_csv_file(self):
-        self.open_file_in_popup("Descarga-Mis-Comprobantes.csv")
+    def open_excel_file(self):
+        excel_path = "Descarga-Mis-Comprobantes.xlsx"
+        if not os.path.exists(excel_path):
+            messagebox.showerror("Error", f"El archivo {excel_path} no existe.")
+            return
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(excel_path)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.run(["open", excel_path], check=False)
+            else:
+                subprocess.run(["xdg-open", excel_path], check=False)
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo abrir {excel_path}: {exc}")
 
 
     def open_file_in_popup(self, file_path):
