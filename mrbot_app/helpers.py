@@ -64,7 +64,16 @@ def df_preview(df: pd.DataFrame, rows: int = 5) -> str:
     header_line = " | ".join(headers)
     rows_str = []
     for _, row in subset.iterrows():
-        row_vals = ["" if pd.isna(row[h]) else str(row[h]) for h in headers]
+        row_vals = []
+        for h in headers:
+            v = row[h]
+            try:
+                is_na = pd.isna(v)
+                if hasattr(is_na, "all"):
+                    is_na = is_na.all()
+            except Exception:
+                is_na = False
+            row_vals.append("" if is_na else str(v))
         rows_str.append(" | ".join(row_vals))
     max_len = max(len(header_line), *(len(r) for r in rows_str))
     sep = "-" * max_len
