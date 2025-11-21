@@ -12,6 +12,7 @@ from mrbot_app.windows import (
     GuiDescargaMC,
     RcelWindow,
     SctWindow,
+    UsuarioWindow,
 )
 from mrbot_app.windows.base import ConfigPane
 
@@ -62,6 +63,7 @@ class MainMenu(tk.Tk):
         ttk.Button(btns, text="Cuenta Corriente (CCMA)", command=self.open_ccma).grid(row=1, column=1, padx=6, pady=4, sticky="ew")
         ttk.Button(btns, text="Consulta Apocrifos", command=self.open_apoc).grid(row=2, column=0, padx=6, pady=4, sticky="ew")
         ttk.Button(btns, text="Consulta de CUIT", command=self.open_cuit).grid(row=2, column=1, padx=6, pady=4, sticky="ew")
+        ttk.Button(btns, text="Usuarios", command=self.open_usuario).grid(row=3, column=0, columnspan=2, padx=6, pady=4, sticky="ew")
 
         btns.columnconfigure((0, 1), weight=1)
 
@@ -85,6 +87,9 @@ class MainMenu(tk.Tk):
 
     def open_cuit(self) -> None:
         ConsultaCuitWindow(self, self.current_config, self.example_paths)
+
+    def open_usuario(self) -> None:
+        UsuarioWindow(self, self.current_config)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from mrbot_app.windows.consulta_cuit import ConsultaCuitWindow
 from mrbot_app.windows.mis_comprobantes import GuiDescargaMC
 from mrbot_app.windows.rcel import RcelWindow
 from mrbot_app.windows.sct import SctWindow
+from mrbot_app.windows.usuario import UsuarioWindow
 
 __all__ = [
     "ApocrifosWindow",
@@ -12,4 +13,5 @@ __all__ = [
     "GuiDescargaMC",
     "RcelWindow",
     "SctWindow",
+    "UsuarioWindow",
 ]
