@@ -1,4 +1,3 @@
-#!/usr/bin/python3
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -23,6 +22,10 @@ class MainMenu(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Herramientas API Mr Bot")
+        try:
+            self.iconbitmap(os.path.join("bin", "ABP-blanco-en-fondo-negro.ico"))
+        except Exception:
+            pass
         self.configure(background=BG)
         self.resizable(False, False)
 
