@@ -119,21 +119,56 @@ class CcmaWindow(BaseWindow):
             return
 
         for _, row in df_to_process.iterrows():
+            cuit_rep = str(row.get("cuit_representante", "")).strip()
+            cuit_repr = str(row.get("cuit_representado", "")).strip()
             payload = {
-                "cuit_representante": str(row.get("cuit_representante", "")).strip(),
+                "cuit_representante": cuit_rep,
                 "clave_representante": str(row.get("clave_representante", "")),
-                "cuit_representado": str(row.get("cuit_representado", "")).strip(),
+                "cuit_representado": cuit_repr,
                 "proxy_request": bool(self.opt_proxy.get()),
             }
             resp = safe_post(url, headers, payload)
-            data = resp.get("data", {})
-            rows.append(
-                {
-                    "cuit_representado": payload["cuit_representado"],
-                    "http_status": resp.get("http_status"),
-                    "status": data.get("status") if isinstance(data, dict) else None,
-                    "error_message": data.get("error_message") if isinstance(data, dict) else None,
-                }
-            )
+            http_status = resp.get("http_status")
+            data = resp.get("data")
+            if http_status == 200 and isinstance(data, dict):
+                # Extraer clave "response_ccma" si existe, para replicar ejemplo
+                response_obj = data.get("response_ccma", data)
+                if isinstance(response_obj, dict):
+                    rows.append({
+                        "cuit_representante": cuit_rep,
+                        "cuit_representado": cuit_repr,
+                        "cuit": response_obj.get("cuit"),
+                        "periodo": response_obj.get("periodo"),
+                        "deuda_capital": response_obj.get("deuda_capital"),
+                        "deuda_accesorios": response_obj.get("deuda_accesorios"),
+                        "total_deuda": response_obj.get("total_deuda"),
+                        "credito_capital": response_obj.get("credito_capital"),
+                        "credito_accesorios": response_obj.get("credito_accesorios"),
+                        "total_a_favor": response_obj.get("total_a_favor"),
+                        "response_json": json.dumps({"response_ccma": response_obj}, ensure_ascii=False),
+                        "error": None
+                    })
+                else:
+                    rows.append({
+                        "cuit_representante": cuit_rep,
+                        "cuit_representado": cuit_repr,
+                        "response_json": json.dumps(data, ensure_ascii=False),
+                        "error": None
+                    })
+            else:
+                rows.append({
+                    "cuit_representante": cuit_rep,
+                    "cuit_representado": cuit_repr,
+                    "response_json": None,
+                    "error": json.dumps(resp, ensure_ascii=False)
+                })
         out_df = pd.DataFrame(rows)
+        # Guardar consolidado en ./descargas/ReporteCCMA.xlsx
+        try:
+            os.makedirs("descargas", exist_ok=True)
+            out_path = os.path.join("descargas", "ReporteCCMA.xlsx")
+            with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
+                out_df.to_excel(writer, index=False, sheet_name="CCMA")
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo guardar ReporteCCMA.xlsx: {exc}")
         self.set_preview(self.result_box, df_preview(out_df, rows=min(20, len(out_df))))
