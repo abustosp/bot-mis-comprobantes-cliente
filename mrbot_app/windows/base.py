@@ -4,7 +4,7 @@ from typing import Optional
 
 import pandas as pd
 
-from mrbot_app.config import DEFAULT_API_KEY, DEFAULT_BASE_URL, DEFAULT_EMAIL
+from mrbot_app.config import DEFAULT_API_KEY, DEFAULT_BASE_URL, DEFAULT_EMAIL, reload_env_defaults
 from mrbot_app.constants import BG, FG
 from mrbot_app.helpers import _format_dates_str
 
@@ -92,3 +92,13 @@ class ConfigPane(ttk.Frame):
 
     def get_config(self) -> tuple[str, str, str]:
         return self.base_url_var.get().strip(), self.api_key_var.get().strip(), self.email_var.get().strip()
+
+    def set_config(self, base_url: str, api_key: str, email: str) -> None:
+        self.base_url_var.set(base_url)
+        self.api_key_var.set(api_key)
+        self.email_var.set(email)
+
+    def load_from_env(self) -> tuple[str, str, str]:
+        base_url, api_key, email = reload_env_defaults()
+        self.set_config(base_url, api_key, email)
+        return base_url, api_key, email
