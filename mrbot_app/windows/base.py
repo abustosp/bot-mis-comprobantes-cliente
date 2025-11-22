@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from typing import Optional
+import os
 
 import pandas as pd
 
@@ -46,6 +47,10 @@ class BaseWindow(tk.Toplevel):
             return
         top = tk.Toplevel(self)
         top.title(title)
+        try:
+            top.iconbitmap(os.path.join("bin", "ABP-blanco-en-fondo-negro.ico"))
+        except Exception:
+            pass
         top.configure(background="#f5f5f5")
         df_display = _format_dates_str(df.head(max_rows).copy())
         tk.Label(
