@@ -19,6 +19,10 @@ from mrbot_app.windows.base import BaseWindow
 class GuiDescargaMC(BaseWindow):
     def __init__(self, master=None, config_pane: Optional[ttk.Frame] = None, example_paths: Optional[Dict[str, str]] = None):
         super().__init__(master, title="Descarga de Mis Comprobantes")
+        try:
+            self.iconbitmap(os.path.join("bin", "ABP-blanco-en-fondo-negro.ico"))
+        except Exception:
+            pass
         self.config_pane = config_pane
         self.example_paths = example_paths or {}
         self.mc_df: Optional[pd.DataFrame] = None

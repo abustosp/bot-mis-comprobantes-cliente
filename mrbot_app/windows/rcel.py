@@ -18,6 +18,10 @@ from mrbot_app.windows.base import BaseWindow
 class RcelWindow(BaseWindow):
     def __init__(self, master=None, config_provider=None, example_paths: Optional[Dict[str, str]] = None):
         super().__init__(master, title="Comprobantes en Linea (RCEL)")
+        try:
+            self.iconbitmap(os.path.join("bin", "ABP-blanco-en-fondo-negro.ico"))
+        except Exception:
+            pass
         self.config_provider = config_provider
         self.example_paths = example_paths or {}
         self.rcel_df: Optional[pd.DataFrame] = None

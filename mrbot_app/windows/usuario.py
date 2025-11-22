@@ -1,5 +1,6 @@
 import json
 from typing import Optional, Tuple
+import os
 
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -12,6 +13,10 @@ from mrbot_app.windows.base import BaseWindow
 class UsuarioWindow(BaseWindow):
     def __init__(self, master=None, config_provider=None):
         super().__init__(master, title="Usuarios")
+        try:
+            self.iconbitmap(os.path.join("bin", "ABP-blanco-en-fondo-negro.ico"))
+        except Exception:
+            pass
         self.config_provider = config_provider
 
         container = ttk.Frame(self, padding=10)
