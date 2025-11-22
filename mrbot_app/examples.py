@@ -1,9 +1,18 @@
 import os
+import sys
+import pathlib
 from typing import Dict, Tuple
 
-import pandas as pd
+# Ajustar sys.path si se ejecuta directamente (python mrbot_app/examples.py)
+if __package__ is None or __package__ == "":
+    sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
 
-from mrbot_app.constants import EXAMPLE_DIR
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+
+from mrbot_app.constants import EXAMPLE_DIR, ACCENT, FG
+from mrbot_app.formatos import aplicar_formato_encabezado, autoajustar_columnas, agregar_filtros
 
 
 def ensure_example_excels() -> Dict[str, str]:
@@ -143,6 +152,27 @@ def ensure_example_excels() -> Dict[str, str]:
         if not os.path.exists(path):
             try:
                 df.to_excel(path, index=False)
+                _format_excel(path)
             except Exception:
                 pass
+        else:
+            _format_excel(path)
     return paths
+
+
+def _format_excel(path: str) -> None:
+    try:
+        wb = load_workbook(path)
+        ws = wb.active
+        aplicar_formato_encabezado(ws)
+        autoajustar_columnas(ws)
+        agregar_filtros(ws)
+        wb.save(path)
+    except Exception:
+        pass
+
+
+if __name__ == "__main__":
+    rutas = ensure_example_excels()
+    for k, v in rutas.items():
+        print(f"{k}: {v}")
