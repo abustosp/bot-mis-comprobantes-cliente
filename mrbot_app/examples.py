@@ -57,6 +57,7 @@ def ensure_example_excels() -> Dict[str, str]:
                     "clave": "clave_demo",
                     "desde": "01/01/2024",
                     "hasta": "31/12/2024",
+                    "ubicacion_descarga": "./descargas/RCEL/20987654321",
                 },
                 {
                     "procesar": "NO",
@@ -66,6 +67,7 @@ def ensure_example_excels() -> Dict[str, str]:
                     "clave": "clave_no",
                     "desde": "01/01/2024",
                     "hasta": "31/12/2024",
+                    "ubicacion_descarga": "./descargas/RCEL/20999999999",
                 },
             ]
         ),

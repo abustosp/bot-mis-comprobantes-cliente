@@ -1,12 +1,15 @@
 import json
 import os
+import re
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import pandas as pd
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from bin.consulta import descargar_archivo_minio
 from mrbot_app.files import open_with_default_app
 from mrbot_app.helpers import build_headers, df_preview, ensure_trailing_slash, make_today_str, safe_post
 from mrbot_app.windows.base import BaseWindow
@@ -27,7 +30,8 @@ class RcelWindow(BaseWindow):
             container,
             "Permite consultas individuales o masivas basadas en un Excel. "
             "Debe incluir cuit_representante, nombre_rcel, representado_cuit y clave. "
-            "Opcionalmente, puedes agregar columnas desde y hasta (DD/MM/AAAA) por fila y procesar (SI/NO).",
+            "Opcionalmente, puedes agregar columnas desde y hasta (DD/MM/AAAA) por fila, procesar (SI/NO) y "
+            "ubicacion_descarga para indicar la carpeta destino. Si no se define, se usará descargas/RCEL/{CUIT representado}.",
         )
 
         dates_frame = ttk.Frame(container)
@@ -63,6 +67,14 @@ class RcelWindow(BaseWindow):
         ttk.Checkbutton(opts, text="PDF en base64", variable=self.b64_var).grid(row=0, column=0, padx=4, pady=2, sticky="w")
         ttk.Checkbutton(opts, text="Subir a MinIO", variable=self.minio_var).grid(row=0, column=1, padx=4, pady=2, sticky="w")
 
+        path_frame = ttk.Frame(container)
+        path_frame.pack(fill="x", pady=2)
+        ttk.Label(path_frame, text="Carpeta descargas (opcional)").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+        self.download_dir_var = tk.StringVar()
+        ttk.Entry(path_frame, textvariable=self.download_dir_var, width=45).grid(row=0, column=1, padx=4, pady=2, sticky="ew")
+        ttk.Button(path_frame, text="Elegir carpeta", command=self.seleccionar_carpeta_descarga).grid(row=0, column=2, padx=4, pady=2, sticky="ew")
+        path_frame.columnconfigure(1, weight=1)
+
         btns = ttk.Frame(container)
         btns.pack(fill="x", pady=4)
         ttk.Button(btns, text="Consultar individual", command=self.consulta_individual).grid(row=0, column=0, padx=4, pady=2, sticky="ew")
@@ -87,6 +99,11 @@ class RcelWindow(BaseWindow):
         )
         self.log_text.pack(fill="both", expand=True)
         self.log_text.configure(state="disabled")
+
+    def seleccionar_carpeta_descarga(self) -> None:
+        folder = filedialog.askdirectory()
+        if folder:
+            self.download_dir_var.set(folder)
 
     def abrir_ejemplo(self) -> None:
         path = self.example_paths.get("rcel.xlsx")
@@ -125,6 +142,94 @@ class RcelWindow(BaseWindow):
         self.log_text.configure(state="disabled")
         self.log_text.update_idletasks()
 
+    def _sanitize_identifier(self, value: str, fallback: str = "desconocido") -> str:
+        cleaned = re.sub(r"[^0-9A-Za-z._-]", "_", (value or "").strip())
+        cleaned = cleaned.strip("_")
+        return cleaned or fallback
+
+    def _is_writable_dir(self, path: str) -> bool:
+        try:
+            if not path:
+                return False
+            os.makedirs(path, exist_ok=True)
+            probe = os.path.join(path, ".rcel_write_test")
+            with open(probe, "w", encoding="utf-8") as fh:
+                fh.write("ok")
+            os.remove(probe)
+            return True
+        except Exception:
+            return False
+
+    def _prepare_download_dir(self, desired_path: str, cuit_repr: str) -> Tuple[Optional[str], List[str]]:
+        messages: List[str] = []
+        target = (desired_path or "").strip()
+        if target:
+            if self._is_writable_dir(target):
+                return target, messages
+            messages.append(f"No se pudo usar la carpeta indicada '{target}'. Se intentará con la ruta por defecto.")
+        fallback = os.path.join("descargas", "RCEL", self._sanitize_identifier(cuit_repr or "desconocido"))
+        if self._is_writable_dir(fallback):
+            if not target:
+                messages.append(f"Usando carpeta por defecto: {fallback}")
+            else:
+                messages.append(f"Usando carpeta por defecto: {fallback}")
+            return fallback, messages
+        messages.append(f"No se pudo preparar la ruta por defecto '{fallback}'.")
+        return None, messages
+
+    def _extract_pdf_links(self, data: Any) -> List[Dict[str, str]]:
+        links: List[Dict[str, str]] = []
+        seen: set[Tuple[str, str]] = set()
+
+        def add_link(url: str) -> None:
+            if not isinstance(url, str):
+                return
+            url = url.strip()
+            if not url.lower().startswith("http"):
+                return
+            lowered = url.lower()
+            if "minio" not in lowered and not lowered.split("?")[0].lower().endswith(".pdf"):
+                return
+            filename = os.path.basename(urlparse(url).path) or "factura.pdf"
+            key = (url, filename)
+            if key in seen:
+                return
+            seen.add(key)
+            links.append({"url": url, "filename": filename})
+
+        def walk(obj: Any) -> None:
+            if isinstance(obj, dict):
+                for _, val in obj.items():
+                    if isinstance(val, (dict, list)):
+                        walk(val)
+                    elif isinstance(val, str):
+                        add_link(val)
+            elif isinstance(obj, list):
+                for item in obj:
+                    walk(item)
+
+        walk(data)
+        return links
+
+    def _download_pdfs(self, links: List[Dict[str, str]], dest_dir: Optional[str]) -> Tuple[int, List[str]]:
+        if not dest_dir:
+            return 0, ["No hay ruta de descarga disponible."]
+        successes = 0
+        errors: List[str] = []
+        for link in links:
+            url = link.get("url")
+            filename = link.get("filename") or "factura.pdf"
+            if not url:
+                errors.append(f"{filename}: URL vacía")
+                continue
+            target_path = os.path.join(dest_dir, filename)
+            res = descargar_archivo_minio(url, target_path)
+            if res.get("success"):
+                successes += 1
+            else:
+                errors.append(f"{filename}: {res.get('error') or 'Error al descargar'}")
+        return successes, errors
+
     def _redact(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         safe = dict(payload)
         if "clave" in safe:
@@ -148,7 +253,27 @@ class RcelWindow(BaseWindow):
         self.clear_logs()
         self.append_log(f"Consulta individual RCEL: {json.dumps(self._redact(payload), ensure_ascii=False)}\n")
         resp = safe_post(url, headers, payload)
-        self.append_log(f"Respuesta HTTP {resp.get('http_status')}: {json.dumps(resp.get('data'), ensure_ascii=False)}\n")
+        data = resp.get("data")
+        self.append_log(f"Respuesta HTTP {resp.get('http_status')}: {json.dumps(data, ensure_ascii=False)}\n")
+        downloads = 0
+        download_errors: List[str] = []
+        download_dir: Optional[str] = None
+        if isinstance(data, dict):
+            links = self._extract_pdf_links(data)
+            if links:
+                download_dir, dir_msgs = self._prepare_download_dir(self.download_dir_var.get(), payload["representado_cuit"])
+                for msg in dir_msgs:
+                    self.append_log(msg + "\n")
+                if download_dir:
+                    downloads, download_errors = self._download_pdfs(links, download_dir)
+                    if downloads:
+                        self.append_log(f"Descargas completadas ({downloads}) en {download_dir}\n")
+                else:
+                    download_errors.append("No se pudo preparar una carpeta para descargas.")
+            else:
+                self.append_log("No se encontraron links de PDF para descargar.\n")
+        for err in download_errors:
+            self.append_log(f"Error de descarga: {err}\n")
         self.set_preview(self.result_box, json.dumps(resp, indent=2, ensure_ascii=False))
 
     def procesar_excel(self) -> None:
@@ -171,6 +296,12 @@ class RcelWindow(BaseWindow):
         for _, row in df_to_process.iterrows():
             desde = str(row.get("desde", "")).strip() or self.desde_var.get().strip()
             hasta = str(row.get("hasta", "")).strip() or self.hasta_var.get().strip()
+            row_download = str(
+                row.get("ubicacion_descarga")
+                or row.get("path_descarga")
+                or row.get("carpeta_descarga")
+                or ""
+            ).strip()
             payload = {
                 "desde": desde,
                 "hasta": hasta,
@@ -185,12 +316,35 @@ class RcelWindow(BaseWindow):
             resp = safe_post(url, headers, payload)
             data = resp.get("data", {})
             self.append_log(f"  -> HTTP {resp.get('http_status')}: {json.dumps(data, ensure_ascii=False)}\n")
+            downloads = 0
+            download_errors: List[str] = []
+            download_dir_used: Optional[str] = None
+            if isinstance(data, dict):
+                links = self._extract_pdf_links(data)
+                if links:
+                    desired_dir = row_download or self.download_dir_var.get()
+                    download_dir_used, dir_msgs = self._prepare_download_dir(desired_dir, payload["representado_cuit"])
+                    for msg in dir_msgs:
+                        self.append_log(f"    {msg}\n")
+                    if download_dir_used:
+                        downloads, download_errors = self._download_pdfs(links, download_dir_used)
+                        if downloads:
+                            self.append_log(f"    Descargas completadas: {downloads} -> {download_dir_used}\n")
+                    else:
+                        download_errors.append("No se pudo preparar una carpeta para descargas.")
+                else:
+                    self.append_log("    Sin links de PDF para descargar\n")
+            for err in download_errors:
+                self.append_log(f"    Error de descarga: {err}\n")
             rows.append(
                 {
                     "representado_cuit": payload["representado_cuit"],
                     "http_status": resp.get("http_status"),
                     "success": data.get("success") if isinstance(data, dict) else None,
                     "message": data.get("message") if isinstance(data, dict) else None,
+                    "descargas": downloads,
+                    "errores_descarga": "; ".join(download_errors) if download_errors else None,
+                    "carpeta_descarga": download_dir_used,
                 }
             )
         out_df = pd.DataFrame(rows)
