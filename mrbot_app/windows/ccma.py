@@ -48,7 +48,7 @@ class CcmaWindow(BaseWindow):
         ttk.Button(btns, text="Consultar individual", command=self.consulta_individual).grid(row=0, column=0, padx=4, pady=2, sticky="ew")
         ttk.Button(btns, text="Seleccionar Excel", command=self.cargar_excel).grid(row=0, column=1, padx=4, pady=2, sticky="ew")
         ttk.Button(btns, text="Ejemplo Excel", command=self.abrir_ejemplo).grid(row=0, column=2, padx=4, pady=2, sticky="ew")
-        ttk.Button(btns, text="Previsualizar Excel", command=lambda: self.open_df_preview(self.ccma_df, "Previsualización CCMA")).grid(row=0, column=3, padx=4, pady=2, sticky="ew")
+        ttk.Button(btns, text="Previsualizar Excel", command=lambda: self.open_df_preview((self.ccma_df[self.ccma_df["procesar"].str.lower().isin(["si", "sí", "yes", "y", "1"])]) if (self.ccma_df is not None and "procesar" in self.ccma_df.columns) else self.ccma_df, "Previsualización CCMA")).grid(row=0, column=3, padx=4, pady=2, sticky="ew")
         ttk.Button(btns, text="Procesar Excel", command=self.procesar_excel).grid(row=1, column=0, columnspan=4, padx=4, pady=6, sticky="ew")
         btns.columnconfigure((0, 1, 2, 3), weight=1)
 

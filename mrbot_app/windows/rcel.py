@@ -84,7 +84,7 @@ class RcelWindow(BaseWindow):
         ttk.Button(btns, text="Consultar individual", command=self.consulta_individual).grid(row=0, column=0, padx=4, pady=2, sticky="ew")
         ttk.Button(btns, text="Seleccionar Excel", command=self.cargar_excel).grid(row=0, column=1, padx=4, pady=2, sticky="ew")
         ttk.Button(btns, text="Ejemplo Excel", command=self.abrir_ejemplo).grid(row=0, column=2, padx=4, pady=2, sticky="ew")
-        ttk.Button(btns, text="Previsualizar Excel", command=lambda: self.open_df_preview(self.rcel_df, "Previsualización RCEL")).grid(row=0, column=3, padx=4, pady=2, sticky="ew")
+        ttk.Button(btns, text="Previsualizar Excel", command=lambda: self.open_df_preview(self._filter_procesar(self.rcel_df), "Previsualización RCEL")).grid(row=0, column=3, padx=4, pady=2, sticky="ew")
         ttk.Button(btns, text="Procesar Excel", command=self.procesar_excel).grid(row=1, column=0, columnspan=4, padx=4, pady=6, sticky="ew")
         btns.columnconfigure((0, 1, 2, 3), weight=1)
 
@@ -124,10 +124,8 @@ class RcelWindow(BaseWindow):
         try:
             self.rcel_df = pd.read_excel(filename, dtype=str).fillna("")
             self.rcel_df.columns = [c.strip().lower() for c in self.rcel_df.columns]
-            df_preview_local = self.rcel_df
-            if "procesar" in df_preview_local.columns:
-                df_preview_local = df_preview_local[df_preview_local["procesar"].str.lower().isin(["si", "sí", "yes", "y", "1"])]
-            self.set_preview(self.preview, "Excel cargado. Usa 'Previsualizar Excel'.")
+            filtered = self._filter_procesar(self.rcel_df)
+            self.set_preview(self.preview, df_preview(filtered if filtered is not None else self.rcel_df))
         except Exception as exc:
             messagebox.showerror("Error", f"No se pudo leer el Excel: {exc}")
             self.rcel_df = None
@@ -163,6 +161,14 @@ class RcelWindow(BaseWindow):
             return True
         except Exception:
             return False
+
+    def _filter_procesar(self, df: Optional[pd.DataFrame]) -> Optional[pd.DataFrame]:
+        if df is None:
+            return None
+        filtered = df
+        if "procesar" in filtered.columns:
+            filtered = filtered[filtered["procesar"].str.lower().isin(["si", "sí", "yes", "y", "1"])]
+        return filtered
 
     def _prepare_download_dir(self, desired_path: str, cuit_repr: str) -> Tuple[Optional[str], List[str]]:
         messages: List[str] = []
@@ -288,10 +294,8 @@ class RcelWindow(BaseWindow):
         headers = build_headers(api_key, email)
         url = ensure_trailing_slash(base_url) + "api/v1/rcel/consulta"
         rows: List[Dict[str, Any]] = []
-        df_to_process = self.rcel_df
-        if "procesar" in df_to_process.columns:
-            df_to_process = df_to_process[df_to_process["procesar"].str.lower().isin(["si", "sí", "yes", "y", "1"])]
-        if df_to_process.empty:
+        df_to_process = self._filter_procesar(self.rcel_df)
+        if df_to_process is None or df_to_process.empty:
             messagebox.showwarning("Sin filas a procesar", "No hay filas marcadas con procesar=SI.")
             return
 
