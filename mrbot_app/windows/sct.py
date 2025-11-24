@@ -184,7 +184,7 @@ class SctWindow(BaseWindow):
         base_name: str,
         cuit_repr: str,
     ) -> Tuple[bool, Optional[str]]:
-        ext_map = {"excel": "xlsx", "csv": "csv", "pdf": "pdf"}
+        ext_map = {"excel": "xls", "csv": "csv", "pdf": "pdf"}
         ext = ext_map[fmt]
         minio_flag = outputs.get(f"{prefix}_{fmt}_minio")
         if not minio_flag:
